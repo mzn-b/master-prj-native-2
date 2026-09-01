@@ -50,8 +50,8 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     let handResult = wantHand ? try? engine.gestureRecognizer?.recognize(videoFrame: image, timestampInMilliseconds: ts) : nil
     let inferenceMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
 
-    let faces = faceResult??.faceLandmarks ?? []
-    let hands = handResult??.landmarks ?? []
+    let faces = faceResult?.faceLandmarks ?? []
+    let hands = handResult?.landmarks ?? []
 
     var floats = [Float](repeating: 0, count: faces.count * Self.faceStride + hands.count * Self.handStride)
     var cursor = 0
@@ -71,7 +71,7 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     // F12 — blendshape scores, one block per face.
     var blendshapeNames: [String] = []
     var scores: [Float] = []
-    if let perFace = faceResult??.faceBlendshapes, let first = perFace.first {
+    if let perFace = faceResult?.faceBlendshapes, let first = perFace.first {
       blendshapeNames = first.categories.map { $0.categoryName ?? "" }
       scores.reserveCapacity(perFace.count * first.categories.count)
       for face in perFace {
@@ -82,8 +82,8 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     }
 
     // F13 — handedness and the top gesture per hand.
-    let handedness = handResult??.handedness ?? []
-    let gestures = handResult??.gestures ?? []
+    let handedness = handResult?.handedness ?? []
+    let gestures = handResult?.gestures ?? []
     var handMeta: [RawHandMeta] = []
     handMeta.reserveCapacity(hands.count)
     for index in hands.indices {
@@ -123,15 +123,16 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     )
   }
 
+  /// Copies the packed floats into an owning ArrayBuffer that JS can read.
   private static func buffer(from values: [Float]) -> ArrayBuffer {
-    let byteCount = values.count * MemoryLayout<Float>.size
-    let raw = UnsafeMutableRawPointer.allocate(byteCount: max(byteCount, 1), alignment: MemoryLayout<Float>.alignment)
-    values.withUnsafeBytes { source in
-      if let base = source.baseAddress, byteCount > 0 {
-        raw.copyMemory(from: base, byteCount: byteCount)
+    return values.withUnsafeBufferPointer { source in
+      guard let base = source.baseAddress, !values.isEmpty else {
+        return ArrayBuffer.allocate(size: 0)
+      }
+      return base.withMemoryRebound(to: UInt8.self, capacity: values.count * MemoryLayout<Float>.size) { bytes in
+        ArrayBuffer.copy(of: bytes, size: values.count * MemoryLayout<Float>.size)
       }
     }
-    return ArrayBuffer.allocate(pointer: raw, size: byteCount, onDelete: { raw.deallocate() })
   }
 
   private static let faceStride = 478 * 3
