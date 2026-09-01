@@ -16,11 +16,21 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
   private let engine = MediaPipeEngine()
   private var wantFace = true
   private var wantHand = true
+  /**
+   * detect() runs on the async-runner thread while configure()/release() come
+   * from the JS thread. Tearing down a MediaPipe task mid-detection is a
+   * use-after-free, so the three are serialised.
+   */
+  private let lock = NSLock()
+  private var isActive = false
 
   var modelLoadTimeMs: Double { engine.modelLoadTimeMs }
   var gpuDelegateActive: Bool { engine.gpuDelegateActive }
 
   func configure(config: DetectorConfig) throws {
+    lock.lock()
+    defer { lock.unlock() }
+    isActive = true
     wantFace = config.mode == "face" || config.mode == "combined"
     wantHand = config.mode == "hand" || config.mode == "combined"
     engine.configure(
@@ -33,10 +43,18 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
   }
 
   func release() throws {
+    lock.lock()
+    defer { lock.unlock() }
+    isActive = false
     engine.release()
   }
 
   func detect(frame: any HybridFrameSpec, timestampMs: Double) throws -> RawDetection {
+    lock.lock()
+    defer { lock.unlock() }
+    // A detection arriving after release() must not touch a closed task.
+    guard isActive else { return Self.empty(timestampMs: timestampMs) }
+
     guard let nativeFrame = frame as? any NativeFrame,
           let sampleBuffer = nativeFrame.sampleBuffer,
           let image = try? MPImage(sampleBuffer: sampleBuffer)

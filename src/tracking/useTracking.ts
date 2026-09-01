@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useAsyncRunner, useFrameOutput} from 'react-native-vision-camera';
 // Shared values are Reanimated's API; react-native-worklets is the runtime beneath it.
-import {useSharedValue} from 'react-native-reanimated';
+import {useAnimatedReaction, useSharedValue} from 'react-native-reanimated';
 import {NitroModules} from 'react-native-nitro-modules';
 import {createLandmarkDetector} from 'tracking-native';
 import type {PerformanceMetricsDTO, TrackingMode} from '../domain/tracking.dto';
@@ -40,6 +40,8 @@ export function useTracking(options: UseTrackingOptions) {
 
   /** Latest detection, read directly by every renderer. */
   const latest = useSharedValue<RawDetection | null>(null);
+  /** Raw detector output, before NF7 dropout grace is applied. */
+  const latestRaw = useSharedValue<RawDetection | null>(null);
   /** Real frame dimensions, taken from the frames themselves. */
   const frameSize = useSharedValue({width: 0, height: 0});
   const frameCounter = useSharedValue(0);
@@ -75,8 +77,14 @@ export function useTracking(options: UseTrackingOptions) {
   }, [options.dynamicInferenceEnabled, governor]);
 
   const frameOutput = useFrameOutput({
+    // MediaPipe reads pixels on the CPU. The default 'native' format is a
+    // GPU-side buffer (PRIVATE on Android), which cannot be converted to a
+    // Bitmap at all — every detection silently returned empty.
+    pixelFormat: 'rgb',
     onFrame(frame) {
       'worklet';
+      frameCounter.value += 1;
+
       if (!running.value) {
         frame.dispose();
         return;
@@ -86,7 +94,6 @@ export function useTracking(options: UseTrackingOptions) {
         frameSize.value = {width: frame.width, height: frame.height};
       }
 
-      frameCounter.value += 1;
       // F15 — skip without touching the detector at all.
       if (frameCounter.value % frameSkip.value !== 0) {
         frame.dispose();
@@ -96,10 +103,10 @@ export function useTracking(options: UseTrackingOptions) {
       const scheduled = asyncRunner.runAsync(() => {
         'worklet';
         try {
-          const detection = boxedDetector.unbox().detect(frame, frame.timestamp);
-          const graced = applyDropoutGrace(graceState.value, detection);
-          graceState.value = graced.state;
-          latest.value = graced.result;
+          // Keep this worklet minimal: the async runner has its own runtime,
+          // where an imported worklet arrives as an object rather than a
+          // function. Only HybridObjects and SharedValues are safe to touch.
+          latestRaw.value = boxedDetector.unbox().detect(frame, frame.timestamp);
         } finally {
           frame.dispose();
         }
@@ -114,6 +121,21 @@ export function useTracking(options: UseTrackingOptions) {
       }
     },
   });
+
+  // NF7 runs on Reanimated's UI runtime, which does unpack imported worklets.
+  useAnimatedReaction(
+    () => latestRaw.value,
+    raw => {
+      'worklet';
+      if (!raw) {
+        latest.value = null;
+        return;
+      }
+      const graced = applyDropoutGrace(graceState.value, raw);
+      graceState.value = graced.state;
+      latest.value = graced.result;
+    },
+  );
 
   const start = useCallback(() => {
     detector.configure({

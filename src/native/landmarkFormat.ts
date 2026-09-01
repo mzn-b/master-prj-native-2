@@ -26,11 +26,13 @@ export const HAND_STRIDE = HAND_LANDMARK_COUNT * VALUES_PER_POINT;
 
 /** Index into the packed array where face `i` starts. */
 export function faceOffset(i: number): number {
+  'worklet';
   return i * FACE_STRIDE;
 }
 
 /** Index into the packed array where hand `i` starts. */
 export function handOffset(faceCount: number, i: number): number {
+  'worklet';
   return faceCount * FACE_STRIDE + i * HAND_STRIDE;
 }
 

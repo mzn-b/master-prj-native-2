@@ -29,6 +29,7 @@ export interface HeadPose {
 }
 
 export function estimateHeadPose(values: Float32Array, offset: number): HeadPose {
+  'worklet';
   const point = (index: number) => {
     const at = offset + index * VALUES_PER_POINT;
     return {x: values[at], y: values[at + 1], z: values[at + 2]};

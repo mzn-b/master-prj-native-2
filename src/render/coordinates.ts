@@ -36,6 +36,7 @@ export interface Point2D {
 
 /** Rotate a normalized point clockwise within the unit square. */
 function rotateNormalized(x: number, y: number, rotation: Rotation): Point2D {
+  'worklet';
   switch (rotation) {
     case 90:
       return {x: 1 - y, y: x};
@@ -49,6 +50,9 @@ function rotateNormalized(x: number, y: number, rotation: Rotation): Point2D {
 }
 
 export function projectNormalized(x: number, y: number, g: ViewGeometry): Point2D {
+  // Called from Reanimated/Skia worklets: an imported plain function cannot be
+  // invoked on the UI runtime, it fails as a "remote function".
+  'worklet';
   const rotated = rotateNormalized(x, y, g.rotation);
   const nx = g.mirrorX ? 1 - rotated.x : rotated.x;
   const ny = rotated.y;
@@ -71,5 +75,6 @@ export function projectNormalized(x: number, y: number, g: ViewGeometry): Point2
 }
 
 export function projectPoint(p: Point2D, g: ViewGeometry): Point2D {
+  'worklet';
   return projectNormalized(p.x, p.y, g);
 }

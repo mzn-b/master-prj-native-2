@@ -26,6 +26,18 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
   private var wantHand = true
   private var maxFaces = 1
   private var maxHands = 2
+  private var useGpu = true
+  private var needsConfigure = true
+  /**
+   * detect() runs on the async-runner thread while configure()/release() are
+   * called from the JS thread. Closing a MediaPipe task while a detection is in
+   * flight is a use-after-free, which shows up as a SIGSEGV inside
+   * libmediapipe. This lock makes the three mutually exclusive.
+   */
+  private val lock = Any()
+  private var isActive = false
+  private var lastTimestampMs = -1L
+  private var detectCount = 0
 
   override val modelLoadTimeMs: Double
     get() = engine.modelLoadTimeMs.toDouble()
@@ -33,25 +45,64 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
   override val gpuDelegateActive: Boolean
     get() = engine.gpuDelegateActive
 
+  /**
+   * Records the configuration only. The MediaPipe tasks are built lazily inside
+   * detect(), on the thread that will call them: a GPU delegate is bound to the
+   * thread that created it, and creating it here (the JS thread) then detecting
+   * on the async-runner thread segfaults after a few frames.
+   */
   override fun configure(config: DetectorConfig) {
     wantFace = config.mode == "face" || config.mode == "combined"
     wantHand = config.mode == "hand" || config.mode == "combined"
     maxFaces = config.maxFaces.toInt().coerceAtLeast(1)
     maxHands = config.maxHands.toInt().coerceAtLeast(1)
-    engine.configure(wantFace, wantHand, maxFaces, maxHands, config.useGpu)
+    synchronized(lock) {
+      useGpu = config.useGpu
+      needsConfigure = true
+      isActive = true
+      lastTimestampMs = -1
+    }
   }
 
   override fun release() {
-    engine.release()
+    synchronized(lock) {
+      isActive = false
+      needsConfigure = true
+      engine.release()
+    }
   }
 
   override fun detect(frame: HybridFrameSpec, timestampMs: Double): RawDetection {
+    return synchronized(lock) {
+    // A detection that arrives after release() must not resurrect the engine.
+    if (!isActive) {
+      return empty(timestampMs)
+    }
+
+    if (needsConfigure) {
+      engine.configure(wantFace, wantHand, maxFaces, maxHands, useGpu)
+      needsConfigure = false
+    }
+
+    // MediaPipe's VIDEO mode requires strictly increasing timestamps.
+    val ts = timestampMs.toLong()
+    if (ts <= lastTimestampMs) {
+      return empty(timestampMs)
+    }
+    lastTimestampMs = ts
+
     val nativeFrame = frame as? NativeFrame ?: return empty(timestampMs)
     val bitmap = bitmapOf(nativeFrame.image) ?: return empty(timestampMs)
 
     val mpImage = BitmapImageBuilder(bitmap).build()
-    val options = ImageProcessingOptions.builder().build()
-    val ts = timestampMs.toLong()
+    // Camera frames arrive rotated (90/270 on a phone held upright). MediaPipe
+    // detects on the image as given, so without this the face is sideways and
+    // nothing is found at all.
+    val rotation = nativeFrame.image.imageInfo.rotationDegrees
+    val options = ImageProcessingOptions.builder()
+      .setRotationDegrees(rotation)
+      .build()
+
     val started = System.nanoTime()
 
     val faceResult = if (wantFace) engine.faceLandmarker?.detectForVideo(mpImage, options, ts) else null
@@ -61,6 +112,8 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
 
     val faces = faceResult?.faceLandmarks() ?: emptyList()
     val hands = handResult?.landmarks() ?: emptyList()
+
+    detectCount++
 
     val floats = FloatArray(faces.size * FACE_STRIDE + hands.size * HAND_STRIDE)
     var cursor = 0
@@ -112,7 +165,7 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
 
     mpImage.close()
 
-    return RawDetection(
+    return@synchronized RawDetection(
       timestampMs = timestampMs,
       faceCount = faces.size.toDouble(),
       handCount = hands.size.toDouble(),
@@ -122,6 +175,7 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
       hands = handMeta,
       inferenceTimeMs = inferenceMs
     )
+    }
   }
 
   private fun empty(timestampMs: Double) = RawDetection(

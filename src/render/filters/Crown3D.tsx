@@ -4,17 +4,35 @@ import {Canvas, useDevice, useSurface} from 'react-native-webgpu';
 import type {SharedValue} from 'react-native-reanimated';
 import * as THREE from 'three/webgpu';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
-import {faceOffset, type RawDetection} from '../../native/landmarkFormat';
+import {VALUES_PER_POINT, faceOffset, type RawDetection} from '../../native/landmarkFormat';
 import {projectNormalized, type ViewGeometry} from '../coordinates';
-import {estimateHeadPose} from '../headPose';
 import {applyGlbTextures, decodeGlbTextures} from './glbTextures';
 
 const CROWN = require('../../../assets/filters/crown.glb');
 
-/** Crown height as a multiple of the temple-to-temple distance. */
-const CROWN_WIDTH_RATIO = 1.35;
-/** How far above the temple line the crown sits, in crown heights. */
-const LIFT = 0.75;
+/**
+ * Placement constants ported from master-prj-pwa/src/filters/CrownFilter.ts so
+ * the crown sits the same way on both platforms (NF4). The PWA lifts the crown
+ * by 0.34 * scaleFactor above the forehead, where scaleFactor is 1.2 * half the
+ * face width — i.e. about 0.15 of the crown's own width.
+ */
+const CROWN_WIDTH_RATIO = 1.12;
+const LIFT = 0.15;
+
+/** Yaw and pitch are clamped exactly as the PWA clamps them. */
+const MAX_YAW = Math.PI / 2.2;
+const MAX_PITCH = Math.PI / 3;
+const YAW_GAIN = 2.7;
+const NEUTRAL_NOSE_RATIO = 0.38;
+
+/** Face-mesh indices used for placement. */
+const LEFT_TEMPLE = 234;
+const RIGHT_TEMPLE = 454;
+const LEFT_EYE_OUTER = 33;
+const RIGHT_EYE_OUTER = 263;
+const NOSE_TIP = 1;
+const FOREHEAD = 10;
+const CHIN = 152;
 
 export interface Crown3DProps {
   latest: SharedValue<RawDetection | null>;
@@ -57,8 +75,10 @@ export function Crown3D({latest, geometry}: Crown3DProps): React.JSX.Element {
       const height = live?.height ?? 0;
       if (width > 0 && height > 0) {
         startedRef.current = true;
-        init(width, height).catch(() => {
-          /* filter stays hidden if the GPU path is unavailable */
+        init(width, height).catch(error => {
+          // Never swallow this silently: a failure here means the filter shows
+          // nothing at all, with no other symptom.
+          console.warn('[Crown3D] initialisation failed:', error);
         });
         return;
       }
@@ -68,7 +88,7 @@ export function Crown3D({latest, geometry}: Crown3DProps): React.JSX.Element {
     const init = async (width: number, height: number) => {
       const context = ref.current?.getContext('webgpu');
       if (!context) {
-        return;
+        throw new Error('no webgpu context');
       }
       context.configure({
         device,
@@ -106,6 +126,8 @@ export function Crown3D({latest, geometry}: Crown3DProps): React.JSX.Element {
       const decoded = await decodeGlbTextures(bytes);
       applyGlbTextures(bytes, model, decoded);
 
+
+
       // Normalise the model to a unit box so placement is independent of how
       // crown.glb was authored.
       const box = new THREE.Box3().setFromObject(model);
@@ -117,7 +139,15 @@ export function Crown3D({latest, geometry}: Crown3DProps): React.JSX.Element {
       const pivot = new THREE.Group();
       pivot.add(model);
       pivot.visible = false;
-      scene.add(pivot);
+
+      // Clip away the back half of the crown — the part a real head would hide.
+      // Without it the rear spikes show through the face as it turns. three's
+      // WebGPU backend takes clipping from a ClippingGroup, not from the
+      // renderer or the material as WebGLRenderer does.
+      const clipping = new THREE.ClippingGroup();
+      clipping.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)];
+      clipping.add(pivot);
+      scene.add(clipping);
 
       const renderer = new THREE.WebGPURenderer({
         canvas: ref.current?.getNativeSurface() as never,
@@ -139,17 +169,83 @@ export function Crown3D({latest, geometry}: Crown3DProps): React.JSX.Element {
         const detection = latest.value;
         if (detection && detection.faceCount > 0) {
           const values = new Float32Array(detection.landmarks);
-          const pose = estimateHeadPose(values, faceOffset(0));
-          const centre = projectNormalized(pose.centre.x, pose.centre.y, geometry);
-          const edge = projectNormalized(pose.centre.x + pose.scale / 2, pose.centre.y, geometry);
-          const widthPx = Math.abs(edge.x - centre.x) * 2 * CROWN_WIDTH_RATIO;
+          const base = faceOffset(0);
+          const project = (index: number) => {
+            const at = base + index * VALUES_PER_POINT;
+            return projectNormalized(values[at], values[at + 1], geometry);
+          };
+
+          // Measure entirely in projected screen space. Offsetting a normalized
+          // coordinate and measuring the screen-x delta does not work: the frame
+          // is rotated, so a normalized-x offset moves the point along screen y.
+          const leftTemple = project(LEFT_TEMPLE);
+          const rightTemple = project(RIGHT_TEMPLE);
+          const forehead = project(FOREHEAD);
+          const chin = project(CHIN);
+
+          const widthPx =
+            Math.hypot(rightTemple.x - leftTemple.x, rightTemple.y - leftTemple.y) *
+            CROWN_WIDTH_RATIO;
+
+          // "Up" for this face on screen, from chin towards forehead.
+          const upX = forehead.x - chin.x;
+          const upY = forehead.y - chin.y;
+          const upLength = Math.hypot(upX, upY) || 1;
+
+          const leftEye = project(LEFT_EYE_OUTER);
+          const rightEye = project(RIGHT_EYE_OUTER);
+          const nose = project(NOSE_TIP);
+          const eyeMidX = (leftEye.x + rightEye.x) / 2;
+          const eyeMidY = (leftEye.y + rightEye.y) / 2;
+          const noseDX = nose.x - eyeMidX;
+          const noseDY = nose.y - eyeMidY;
+          const faceWidthPx = Math.hypot(
+            rightTemple.x - leftTemple.x,
+            rightTemple.y - leftTemple.y,
+          ) || 1;
+          const faceHeightPx = Math.hypot(chin.x - forehead.x, chin.y - forehead.y) || 1;
+
+          // Screen-space roll already accounts for frame rotation and mirroring,
+          // because it is measured between projected points.
+          const roll = Math.atan2(rightTemple.y - leftTemple.y, rightTemple.x - leftTemple.x);
+          const handedness = geometry.mirrorX ? -1 : 1;
+
+          // Ratios rather than raw offsets, so the pose does not change with how
+          // large the face is in frame. Clamped like the PWA: without a limit the
+          // crown swings wildly at the edges of the tracking range.
+          // Project the nose offset onto the face's own axes. Screen x/y are the
+          // wrong basis: the camera frame is rotated, so the face's vertical
+          // axis does not line up with screen y, and the head also rolls.
+          const rightX = (rightTemple.x - leftTemple.x) / faceWidthPx;
+          const rightY = (rightTemple.y - leftTemple.y) / faceWidthPx;
+          const upXn = upX / upLength;
+          const upYn = upY / upLength;
+
+          const alongRight = noseDX * rightX + noseDY * rightY;
+          const belowEyes = -(noseDX * upXn + noseDY * upYn);
+
+          const yaw = Math.max(
+            -MAX_YAW,
+            Math.min(MAX_YAW, (alongRight / faceWidthPx) * YAW_GAIN * handedness),
+          );
+          const noseRatio = belowEyes / faceHeightPx;
+          const pitch = Math.max(
+            -MAX_PITCH,
+            Math.min(MAX_PITCH, -(noseRatio - NEUTRAL_NOSE_RATIO) * Math.PI),
+          );
 
           pivot.visible = widthPx > 1;
           pivot.scale.setScalar(widthPx);
-          pivot.position.set(centre.x, centre.y - widthPx * LIFT, 0);
-          // Mirroring flips the apparent direction of yaw and roll.
-          const handedness = geometry.mirrorX ? -1 : 1;
-          pivot.rotation.set(pose.pitch, pose.yaw * handedness, -pose.roll * handedness);
+          pivot.position.set(
+            forehead.x + (upX / upLength) * widthPx * LIFT,
+            forehead.y + (upY / upLength) * widthPx * LIFT,
+            0,
+          );
+          // The orthographic camera is set up y-down to match screen coordinates
+          // (top = 0), which inverts the sense of a rotation about z relative to
+          // three's usual y-up convention — hence the roll is applied as-is
+          // rather than negated.
+          pivot.rotation.set(pitch, yaw, roll);
         } else {
           pivot.visible = false;
         }

@@ -37,6 +37,7 @@ jest.mock('@shopify/react-native-skia', () => {
 jest.mock('react-native-reanimated', () => ({
   useSharedValue: (initial) => ({value: initial}),
   useDerivedValue: (factory) => ({value: factory()}),
+  useAnimatedReaction: () => undefined,
 }));
 
 /** VisionCamera resolves native modules at import time. */

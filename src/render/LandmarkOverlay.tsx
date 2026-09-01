@@ -63,7 +63,7 @@ export function LandmarkOverlay({
       }
     }
     return path;
-  }, [latest, geometry, showFace]);
+  });
 
   const handPath = useDerivedValue(() => {
     const path = Skia.Path.Make();
@@ -93,7 +93,7 @@ export function LandmarkOverlay({
       }
     }
     return path;
-  }, [latest, geometry, showHand]);
+  });
 
   const style = useMemo(() => StyleSheet.absoluteFill, []);
 
