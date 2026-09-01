@@ -33,61 +33,72 @@ interface HeldHands {
   meta: RawHandMeta[];
 }
 
-export class DropoutGrace {
-  private faces: HeldFaces | null = null;
-  private hands: HeldHands | null = null;
+/** Plain, serialisable state so this can live in a SharedValue. */
+export interface GraceState {
+  faces: HeldFaces | null;
+  hands: HeldHands | null;
+}
 
-  reset(): void {
-    this.faces = null;
-    this.hands = null;
+export function emptyGraceState(): GraceState {
+  return {faces: null, hands: null};
+}
+
+/**
+ * Worklet-safe: this runs on the async detection thread, so it must be a plain
+ * function over plain data. A class instance cannot cross into a worklet — its
+ * methods simply are not there, which fails at runtime as
+ * "Cannot read property 'apply' of undefined".
+ */
+export function applyDropoutGrace(
+  state: GraceState,
+  raw: RawDetection,
+): {result: RawDetection; state: GraceState} {
+  'worklet';
+  const withinGrace = (heldAt: number | undefined, now: number): boolean =>
+    heldAt !== undefined && now - heldAt <= DROPOUT_GRACE_MS;
+
+  const values = new Float32Array(raw.landmarks);
+  const faceValueCount = raw.faceCount * FACE_STRIDE;
+
+  let faces = state.faces;
+  let hands = state.hands;
+
+  if (raw.faceCount > 0) {
+    faces = {
+      timestampMs: raw.timestampMs,
+      count: raw.faceCount,
+      values: values.slice(0, faceValueCount),
+      blendshapes: new Float32Array(raw.blendshapes),
+      blendshapeNames: raw.blendshapeNames,
+    };
+  }
+  if (raw.handCount > 0) {
+    hands = {
+      timestampMs: raw.timestampMs,
+      count: raw.handCount,
+      values: values.slice(faceValueCount, faceValueCount + raw.handCount * HAND_STRIDE),
+      meta: raw.hands,
+    };
   }
 
-  apply(raw: RawDetection): RawDetection {
-    const values = new Float32Array(raw.landmarks);
-    const faceValueCount = raw.faceCount * FACE_STRIDE;
+  const heldFaces = raw.faceCount === 0 && withinGrace(faces?.timestampMs, raw.timestampMs) ? faces : null;
+  const heldHands = raw.handCount === 0 && withinGrace(hands?.timestampMs, raw.timestampMs) ? hands : null;
 
-    if (raw.faceCount > 0) {
-      this.faces = {
-        timestampMs: raw.timestampMs,
-        count: raw.faceCount,
-        values: values.slice(0, faceValueCount),
-        blendshapes: new Float32Array(raw.blendshapes),
-        blendshapeNames: raw.blendshapeNames,
-      };
-    }
-    if (raw.handCount > 0) {
-      this.hands = {
-        timestampMs: raw.timestampMs,
-        count: raw.handCount,
-        values: values.slice(faceValueCount, faceValueCount + raw.handCount * HAND_STRIDE),
-        meta: raw.hands,
-      };
-    }
+  if (!heldFaces && !heldHands) {
+    return {result: raw, state: {faces, hands}};
+  }
 
-    const heldFaces =
-      raw.faceCount === 0 && this.withinGrace(this.faces?.timestampMs, raw.timestampMs)
-        ? this.faces
-        : null;
-    const heldHands =
-      raw.handCount === 0 && this.withinGrace(this.hands?.timestampMs, raw.timestampMs)
-        ? this.hands
-        : null;
+  const faceValues = heldFaces ? heldFaces.values : values.subarray(0, faceValueCount);
+  const handValues = heldHands
+    ? heldHands.values
+    : values.subarray(faceValueCount, faceValueCount + raw.handCount * HAND_STRIDE);
 
-    if (!heldFaces && !heldHands) {
-      return raw;
-    }
+  const merged = new Float32Array(faceValues.length + handValues.length);
+  merged.set(faceValues, 0);
+  merged.set(handValues, faceValues.length);
 
-    const faceValues = heldFaces ? heldFaces.values : values.subarray(0, faceValueCount);
-    const handValues = heldHands
-      ? heldHands.values
-      : values.subarray(faceValueCount, faceValueCount + raw.handCount * HAND_STRIDE);
-
-    // Rebuild the packed buffer, faces first, as landmarkFormat requires.
-    const merged = new Float32Array(faceValues.length + handValues.length);
-    merged.set(faceValues, 0);
-    merged.set(handValues, faceValues.length);
-
-    return {
+  return {
+    result: {
       timestampMs: raw.timestampMs,
       faceCount: heldFaces ? heldFaces.count : raw.faceCount,
       handCount: heldHands ? heldHands.count : raw.handCount,
@@ -96,10 +107,23 @@ export class DropoutGrace {
       blendshapeNames: heldFaces ? heldFaces.blendshapeNames : raw.blendshapeNames,
       hands: heldHands ? heldHands.meta : raw.hands,
       inferenceTimeMs: raw.inferenceTimeMs,
-    };
+    },
+    state: {faces, hands},
+  };
+}
+
+/** Stateful wrapper for JS-thread callers and tests. */
+export class DropoutGrace {
+  private state: GraceState = emptyGraceState();
+
+  reset(): void {
+    this.state = emptyGraceState();
   }
 
-  private withinGrace(heldAt: number | undefined, now: number): boolean {
-    return heldAt !== undefined && now - heldAt <= DROPOUT_GRACE_MS;
+  apply(raw: RawDetection): RawDetection {
+    const {result, state} = applyDropoutGrace(this.state, raw);
+    this.state = state;
+    return result;
   }
+
 }

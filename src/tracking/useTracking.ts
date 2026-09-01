@@ -2,6 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useAsyncRunner, useFrameOutput} from 'react-native-vision-camera';
 // Shared values are Reanimated's API; react-native-worklets is the runtime beneath it.
 import {useSharedValue} from 'react-native-reanimated';
+import {NitroModules} from 'react-native-nitro-modules';
 import {createLandmarkDetector} from 'tracking-native';
 import type {PerformanceMetricsDTO, TrackingMode} from '../domain/tracking.dto';
 import type {RawDetection} from '../native/landmarkFormat';
@@ -11,7 +12,7 @@ import {
   DEFAULT_DYNAMIC_INFERENCE_CONFIG,
   DynamicInferenceController,
 } from './DynamicInferenceController';
-import {DropoutGrace} from './dropoutGrace';
+import {applyDropoutGrace, emptyGraceState} from './dropoutGrace';
 import {PerformanceTracker} from './PerformanceTracker';
 
 /** The only periodic React state update in the app. */
@@ -46,13 +47,24 @@ export function useTracking(options: UseTrackingOptions) {
   const running = useSharedValue(false);
 
   const detector = useMemo(() => createLandmarkDetector(), []);
+  /**
+   * A HybridObject must be boxed to cross into another Runtime. The detection
+   * worklet runs on the async runner's own runtime, where an unboxed object
+   * arrives without its methods ("Object is not a function").
+   */
+  const boxedDetector = useMemo(() => NitroModules.box(detector), [detector]);
   const tracker = useRef(new PerformanceTracker()).current;
   const smoother = useRef(new LandmarkSmoother(DEFAULT_SMOOTHING_CONFIG)).current;
   const governor = useRef(
     new DynamicInferenceController(DEFAULT_DYNAMIC_INFERENCE_CONFIG),
   ).current;
-  const grace = useRef(new DropoutGrace()).current;
   const asyncRunner = useAsyncRunner();
+
+  // Worklet-owned state. Everything the frame callback touches must be a
+  // SharedValue or a HybridObject — a JS class instance has no methods on the
+  // worklet runtime and fails at runtime, not at compile time.
+  const graceState = useSharedValue(emptyGraceState());
+  const droppedFrames = useSharedValue(0);
 
   useEffect(() => {
     smoother.setConfig({enabled: options.smoothingEnabled});
@@ -84,8 +96,10 @@ export function useTracking(options: UseTrackingOptions) {
       const scheduled = asyncRunner.runAsync(() => {
         'worklet';
         try {
-          const result = detector.detect(frame, frame.timestamp);
-          latest.value = grace.apply(result);
+          const detection = boxedDetector.unbox().detect(frame, frame.timestamp);
+          const graced = applyDropoutGrace(graceState.value, detection);
+          graceState.value = graced.state;
+          latest.value = graced.result;
         } finally {
           frame.dispose();
         }
@@ -93,9 +107,10 @@ export function useTracking(options: UseTrackingOptions) {
 
       if (!scheduled) {
         // NF1 — inference is behind. Drop this frame and count it honestly
-        // rather than queueing work the device cannot keep up with.
+        // rather than queueing work the device cannot keep up with. The count
+        // is drained onto the tracker by the metrics tick.
         frame.dispose();
-        tracker.recordDroppedFrame();
+        droppedFrames.value += 1;
       }
     },
   });
@@ -110,14 +125,26 @@ export function useTracking(options: UseTrackingOptions) {
     tracker.start();
     tracker.setModelLoadTime(detector.modelLoadTimeMs);
     tracker.setGpuDelegateActive(detector.gpuDelegateActive);
-    grace.reset();
+    graceState.value = emptyGraceState();
+    droppedFrames.value = 0;
     smoother.reset();
     governor.reset();
     frameCounter.value = 0;
     frameSkip.value = 1;
     running.value = true;
     setIsRunning(true);
-  }, [detector, options.mode, tracker, grace, smoother, governor, frameCounter, frameSkip, running]);
+  }, [
+    detector,
+    options.mode,
+    tracker,
+    smoother,
+    governor,
+    frameCounter,
+    frameSkip,
+    running,
+    graceState,
+    droppedFrames,
+  ]);
 
   const stop = useCallback((): PerformanceMetricsDTO | undefined => {
     const final = tracker.getMetrics(getNativeMetrics());
@@ -128,13 +155,13 @@ export function useTracking(options: UseTrackingOptions) {
     } catch {
       // Releasing a detector that never configured is not an error.
     }
-    grace.reset();
+    graceState.value = emptyGraceState();
     smoother.reset();
     governor.reset();
     latest.value = null;
     setMetrics(null);
     return final;
-  }, [detector, tracker, grace, smoother, governor, latest, running]);
+  }, [detector, tracker, smoother, governor, latest, running, graceState]);
 
   /**
    * Begin a new measurement window without interrupting the camera. Used on a
@@ -151,6 +178,13 @@ export function useTracking(options: UseTrackingOptions) {
       return;
     }
     const id = setInterval(() => {
+      // Drain the worklet's dropped-frame counter onto the tracker.
+      if (droppedFrames.value > 0) {
+        for (let i = 0; i < droppedFrames.value; i++) {
+          tracker.recordDroppedFrame();
+        }
+        droppedFrames.value = 0;
+      }
       const snapshot = tracker.getMetrics(getNativeMetrics());
       setMetrics(snapshot);
       if (snapshot.avgInferenceTimeMs > 0) {
@@ -161,7 +195,7 @@ export function useTracking(options: UseTrackingOptions) {
       }
     }, METRICS_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [isRunning, tracker, governor, frameSkip]);
+  }, [isRunning, tracker, governor, frameSkip, droppedFrames]);
 
   return {
     isRunning,

@@ -49,6 +49,14 @@ jest.mock('react-native-vision-camera', () => ({
   useAsyncRunner: jest.fn(() => ({runAsync: () => true})),
 }));
 
+/** Nitro's native module is unavailable under jest; box() is identity here. */
+jest.mock('react-native-nitro-modules', () => ({
+  NitroModules: {
+    box: (obj) => ({unbox: () => obj}),
+    createHybridObject: () => ({}),
+  },
+}));
+
 /** The Nitro HybridObjects have no JS implementation to load in tests. */
 jest.mock('tracking-native', () => ({
   createLandmarkDetector: () => ({

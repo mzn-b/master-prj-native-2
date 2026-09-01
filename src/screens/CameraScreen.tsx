@@ -40,6 +40,7 @@ export function CameraScreen(): React.JSX.Element {
   const [showDebug, setShowDebug] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [debugTracking, setDebugTracking] = useState<TrackingDTO | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [preview, setPreview] = useState({width: 0, height: 0});
 
   // Filter mode always tracks both modalities so filters work without a restart.
@@ -130,6 +131,13 @@ export function CameraScreen(): React.JSX.Element {
     [],
   );
 
+  // A camera failure ends the session rather than leaving it half-running.
+  useEffect(() => {
+    if (cameraError && isRunning) {
+      tracking.stop();
+    }
+  }, [cameraError, isRunning, tracking]);
+
   const handleStop = useCallback(async () => {
     const final = tracking.stop();
     if (final) {
@@ -181,17 +189,25 @@ export function CameraScreen(): React.JSX.Element {
   return (
     <View style={styles.root}>
       <View style={styles.preview} onLayout={onPreviewLayout}>
-        {device && hasPermission ? (
+        {device && hasPermission && isRunning ? (
+          // Bound only while a session runs: an idle screen should not hold the
+          // camera open, and an unsupported configuration must surface as a
+          // message rather than take the app down.
           <Camera
             style={StyleSheet.absoluteFill}
             device={device}
-            isActive={isRunning}
+            isActive
             outputs={[frameOutput]}
+            onError={error => setCameraError(error.message)}
           />
         ) : (
           <View style={styles.placeholder}>
             <Text style={styles.placeholderText}>
-              {device ? 'Kamerazugriff erforderlich' : 'Keine Kamera gefunden'}
+              {!device
+                ? 'Keine Kamera gefunden'
+                : !hasPermission
+                  ? 'Kamerazugriff erforderlich'
+                  : 'Bereit — Start drücken'}
             </Text>
           </View>
         )}
@@ -217,10 +233,14 @@ export function CameraScreen(): React.JSX.Element {
           isRunning={isRunning}
           canStart={canStartTracking(capabilities)}
           isUploading={isUploading}
-          onStart={tracking.start}
+          onStart={() => {
+            setCameraError(null);
+            tracking.start();
+          }}
           onStop={handleStop}
         />
 
+        {cameraError && <Text style={styles.error}>Kamera: {cameraError}</Text>}
         {capabilities.errors.map(error => (
           <Text key={error} style={styles.error}>
             {error}
