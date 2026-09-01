@@ -42,11 +42,11 @@ jest.mock('react-native-reanimated', () => ({
 /** VisionCamera resolves native modules at import time. */
 jest.mock('react-native-vision-camera', () => ({
   Camera: () => null,
-  useCameraDevice: () => ({id: 'front', position: 'front'}),
-  useCameraPermission: () => ({hasPermission: true, requestPermission: jest.fn()}),
-  useCameraFormat: () => undefined,
-  useFrameOutput: () => ({}),
-  useAsyncRunner: () => ({runAsync: () => true}),
+  // jest.fn() so individual tests can override the return value.
+  useCameraDevice: jest.fn(() => ({id: 'front', position: 'front'})),
+  useCameraPermission: jest.fn(() => ({hasPermission: true, requestPermission: jest.fn()})),
+  useFrameOutput: jest.fn(() => ({})),
+  useAsyncRunner: jest.fn(() => ({runAsync: () => true})),
 }));
 
 /** The Nitro HybridObjects have no JS implementation to load in tests. */

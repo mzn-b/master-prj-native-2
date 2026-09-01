@@ -39,6 +39,8 @@ export function useTracking(options: UseTrackingOptions) {
 
   /** Latest detection, read directly by every renderer. */
   const latest = useSharedValue<RawDetection | null>(null);
+  /** Real frame dimensions, taken from the frames themselves. */
+  const frameSize = useSharedValue({width: 0, height: 0});
   const frameCounter = useSharedValue(0);
   const frameSkip = useSharedValue(1);
   const running = useSharedValue(false);
@@ -66,6 +68,10 @@ export function useTracking(options: UseTrackingOptions) {
       if (!running.value) {
         frame.dispose();
         return;
+      }
+
+      if (frameSize.value.width !== frame.width) {
+        frameSize.value = {width: frame.width, height: frame.height};
       }
 
       frameCounter.value += 1;
@@ -157,5 +163,15 @@ export function useTracking(options: UseTrackingOptions) {
     return () => clearInterval(id);
   }, [isRunning, tracker, governor, frameSkip]);
 
-  return {isRunning, frameOutput, latest, metrics, currentFrameSkip, start, stop, resetSession};
+  return {
+    isRunning,
+    frameOutput,
+    latest,
+    frameSize,
+    metrics,
+    currentFrameSkip,
+    start,
+    stop,
+    resetSession,
+  };
 }
