@@ -1,97 +1,148 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# master-prj-native-2
 
-# Getting Started
+React Native CLI half of the master's thesis comparison *"PWAs vs. Native AR Filters"*.
+Real-time face and hand tracking with MediaPipe Tasks Vision through native Swift and
+Kotlin plugins, three demo filters, and metrics submission to the shared Spring Boot
+backend.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+This app **replaces `master-prj-native`** as the native contender. The `Platform` values
+(`IOS_NATIVE` / `ANDROID_NATIVE`), the DTO and the backend contract are unchanged, so
+sessions from either generation land in the same buckets.
 
-## Step 1: Start Metro
+See `../ARCHITECTURE.md` for the system-level architecture and measurement methodology,
+and `../docs/superpowers/specs/2026-09-01-master-prj-native-2-design.md` for the design
+this implements.
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Status
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+| | Android | iOS |
+|---|---|---|
+| Builds | yes | yes |
+| Landmarks (F2–F4) | verified on Pixel 7 | verified on iPhone SE (3rd gen) |
+| Crown / glasses / sparkles | verified | built, not yet visually verified |
+| Session submit | implemented | implemented |
 
-```sh
-# Using npm
-npm start
+120 unit tests. `npx tsc --noEmit` and `npm run lint` clean.
 
-# OR using Yarn
-yarn start
+## Prerequisites
+
+- Node ≥ 22.11 (the RN 0.87 template requires it), watchman, Ruby + bundler
+- **iOS:** Xcode 16+, an Apple ID signed in to Xcode (Settings → Accounts) for device
+  builds, and a physical device — the Simulator's camera cannot do frame analysis
+- **Android:** SDK 37, JDK 17, a physical device. **The emulator cannot run this app's
+  camera**: it rejects `ImageAnalysis` at 1280x720 with "PRIVATE format ... not
+  supported". The emulator is still useful for everything except the camera.
+
+## Install and run
+
+```bash
+npm install
+cd ios && bundle install && bundle exec pod install && cd ..
+
+npm start                 # Metro
+npm run android           # or: npx react-native run-android --device <serial>
+npm run ios               # or build/install via Xcode for a physical device
+npm run nitrogen          # regenerate native specs after editing any *.nitro.ts
+npm test && npx tsc --noEmit && npm run lint
 ```
 
-## Step 2: Build and run your app
+### iOS: the packaged-bundle trap
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+A debug `.app` contains a packaged `main.jsbundle` and **silently falls back to it when
+Metro is unreachable**, which on iOS means "not on the same Wi-Fi as the Mac" — there is
+no `adb reverse` equivalent. Reopening the app is therefore *not* enough to pick up a
+JavaScript change: either confirm the device can reach the Mac's IP (baked into
+`ip.txt` in the bundle at build time), or rebuild. Several hours were lost to this;
+Android does not have the problem because Metro is forwarded over USB.
 
-### Android
+## Layout
 
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```
+src/
+  domain/tracking.dto.ts        contract shared with the PWA and backend (F7)
+  native/
+    landmarkFormat.ts           packed Float32 layout + offsets
+  tracking/
+    useTracking.ts              camera -> detect -> smooth -> publish, session lifecycle
+    decodeDetection.ts          packed buffer -> TrackingDTO
+    dropoutGrace.ts             NF7, 150 ms hold, worklet-safe
+    LandmarkSmoother.ts         One Euro filter (F9)
+    DynamicInferenceController  frame-skip governor (F15)
+    PerformanceTracker.ts       metrics (F8, F11)
+    deviceCapabilities.ts       pre-start checks (F10)
+  render/
+    coordinates.ts              THE normalized -> view-pixel transform
+    headPose.ts                 pose from landmarks
+    LandmarkOverlay.tsx         Skia landmarks (F4)
+    filters/                    Crown3D (three.js/WebGPU), Glasses, Sparkles, FilterLayer
+  metrics/nativeMetrics.ts      CPU / memory / thermal / battery
+  api/                          backend client
+  ui/                           presentational components
+  screens/CameraScreen.tsx      composition only
+modules/tracking-native/        local Nitro module: Swift + Kotlin, MediaPipe, models
 ```
 
-### iOS
+## How the pipeline works
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+1. `<Camera>` stays mounted and is driven by `isActive`. Its frame output requests
+   `pixelFormat: 'rgb'`.
+2. `onFrame` (worklet) applies the F15 frame-skip, then hands the frame to
+   `useAsyncRunner`, a single dedicated thread. If the runner is busy the frame is
+   disposed and counted as dropped — real backpressure, and a measured number rather
+   than an estimate.
+3. The async worklet calls the `LandmarkDetector` Nitro HybridObject, which runs
+   MediaPipe and returns landmarks packed as one `Float32Array`.
+4. Reanimated's UI runtime applies NF7 dropout grace and publishes to a SharedValue.
+5. Skia and three.js read that value directly. **No React state is updated per frame.**
+6. Every 500 ms the metrics tick drains accumulated measurements onto the
+   `PerformanceTracker` and updates the HUD.
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+### Things that are load-bearing
 
-```sh
-bundle install
-```
+Each of these caused a silent failure — compiling cleanly and producing no error:
 
-Then, and every time you update your native dependencies, run:
+- **`pixelFormat: 'rgb'` is required on both platforms.** Android's native format is a
+  GPU-side PRIVATE buffer that the CPU cannot read (so `toBitmap()` fails and every
+  detection returns empty); iOS cannot feed its native buffer to `MPImage` either.
+- **The app supplies its own millisecond timestamp.** `frame.timestamp` is in seconds on
+  iOS and already millisecond-scaled on Android; MediaPipe's VIDEO mode silently returns
+  nothing when the integer millisecond value does not strictly increase.
+- **MediaPipe tasks are built lazily on the thread that calls `detect`.** A GPU delegate
+  belongs to its creating thread; building on the JS thread and detecting elsewhere
+  segfaults on Android and stalls on iOS.
+- **`detect` / `configure` / `release` are mutually exclusive.** Closing a task while a
+  detection is in flight is a use-after-free.
+- **Pure helpers called from worklets need the `'worklet'` directive**, and a Nitro
+  HybridObject must be **boxed** (`NitroModules.box`) to cross into another runtime.
+- **Frame rotation must be passed to MediaPipe**, or the face arrives sideways and is
+  never found.
+- **`<Camera>` must stay mounted.** Unmounting it per session trips an AVFoundation
+  assertion on iOS and aborts the app.
 
-```sh
-bundle exec pod install
-```
+## Measurements so far
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+Face-only, GPU delegate, both devices:
 
-```sh
-# Using npm
-npm run ios
+| Device | Inference | Detections/sec |
+|---|---|---|
+| iPhone SE (3rd gen, A15) | 20–21 ms | 30 |
+| Pixel 7 (Tensor G2) | ~95 ms | ~7 |
 
-# OR using Yarn
-yarn ios
-```
+**Do not quote this yet.** It is a single unmatched sample: face-only on iOS, and the
+Android path converts `ImageProxy → Bitmap → MPImage` per frame while iOS passes the
+`CMSampleBuffer` straight in. Part of the gap may be that asymmetry in this codebase
+rather than a platform property. A matched run (same mode, same duration, same lighting)
+is needed first, and the conversion asymmetry belongs in the limitations section.
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+## Running a comparison benchmark
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+1. Start the backend (`docker compose up` in `../master-prj-backend`).
+2. Point `src/api/config.ts` at `http://<your-LAN-IP>:8080`; the phone cannot reach
+   `localhost`.
+3. Install on a **physical device** on both platforms.
+4. Put both apps in the **same state**: same tracking mode, and the same F9 smoothing and
+   F15 dynamic-inference settings. These change the numbers and must match.
+5. Start, run for a fixed duration, Stop — the session submits automatically. Toggling a
+   filter also submits and starts a new measurement window, so each filter combination is
+   its own session.
+6. `SELECT * FROM tracking_sessions ORDER BY recorded_at DESC LIMIT 5;`
