@@ -23,6 +23,11 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
    */
   private let lock = NSLock()
   private var isActive = false
+  private var needsConfigure = true
+  private var maxFaces = 1
+  private var maxHands = 2
+  private var useGpu = true
+  private var lastTimestampMs: Double = -1
 
   var modelLoadTimeMs: Double { engine.modelLoadTimeMs }
   var gpuDelegateActive: Bool { engine.gpuDelegateActive }
@@ -33,19 +38,21 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     isActive = true
     wantFace = config.mode == "face" || config.mode == "combined"
     wantHand = config.mode == "hand" || config.mode == "combined"
-    engine.configure(
-      wantFace: wantFace,
-      wantHand: wantHand,
-      maxFaces: max(Int(config.maxFaces), 1),
-      maxHands: max(Int(config.maxHands), 1),
-      useGpu: config.useGpu
-    )
+    maxFaces = max(Int(config.maxFaces), 1)
+    maxHands = max(Int(config.maxHands), 1)
+    useGpu = config.useGpu
+    lastTimestampMs = -1
+    // Build the tasks lazily inside detect(), on the thread that will use them.
+    // A GPU delegate is bound to its creating thread; building here (the JS
+    // thread) and detecting on the async-runner thread stalls the runner.
+    needsConfigure = true
   }
 
   func release() throws {
     lock.lock()
     defer { lock.unlock() }
     isActive = false
+    needsConfigure = true
     engine.release()
   }
 
@@ -55,10 +62,33 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     // A detection arriving after release() must not touch a closed task.
     guard isActive else { return Self.empty(timestampMs: timestampMs) }
 
-    guard let nativeFrame = frame as? any NativeFrame,
-          let sampleBuffer = nativeFrame.sampleBuffer,
-          let image = try? MPImage(sampleBuffer: sampleBuffer)
-    else {
+    if needsConfigure {
+      engine.configure(
+        wantFace: wantFace,
+        wantHand: wantHand,
+        maxFaces: maxFaces,
+        maxHands: maxHands,
+        useGpu: useGpu
+      )
+      needsConfigure = false
+    }
+
+    // MediaPipe's VIDEO mode requires strictly increasing timestamps.
+    guard timestampMs > lastTimestampMs else {
+      return Self.empty(timestampMs: timestampMs)
+    }
+    lastTimestampMs = timestampMs
+
+    guard let nativeFrame = frame as? any NativeFrame else {
+      return Self.empty(timestampMs: timestampMs)
+    }
+    guard let sampleBuffer = nativeFrame.sampleBuffer else {
+      return Self.empty(timestampMs: timestampMs)
+    }
+    let image: MPImage
+    do {
+      image = try MPImage(sampleBuffer: sampleBuffer)
+    } catch {
       return Self.empty(timestampMs: timestampMs)
     }
 

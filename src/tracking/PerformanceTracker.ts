@@ -160,6 +160,77 @@ export class PerformanceTracker {
     this.detectionFrameCount++;
   }
 
+  /**
+   * Record a batch of frames measured on the worklet runtime.
+   *
+   * Detection runs on the async-runner thread, where a JS class instance has no
+   * methods, so the frame loop accumulates raw numbers into SharedValues and
+   * hands them over here on the metrics tick. Semantics match the per-frame
+   * path: the same circular buffers, the same warmup gate.
+   */
+  recordBatch(batch: {
+    frames: number;
+    intervalSumMs: number;
+    minIntervalMs: number;
+    maxIntervalMs: number;
+    inferenceSumMs: number;
+    processingSumMs: number;
+    facesSum: number;
+    handsSum: number;
+    trackedFrames: number;
+  }): void {
+    if (batch.frames <= 0) {
+      return;
+    }
+
+    const meanInterval = batch.intervalSumMs / batch.frames;
+    const meanInference = batch.inferenceSumMs / batch.frames;
+    const meanProcessing = batch.processingSumMs / batch.frames;
+
+    for (let i = 0; i < batch.frames; i++) {
+      this.frameTimes.push(meanInterval);
+      this.inferenceTimes.push(meanInference);
+      this.processingTimes.push(meanProcessing);
+    }
+
+    this.frameCount += batch.frames;
+    this.totalFacesDetected += batch.facesSum;
+    this.totalHandsDetected += batch.handsSum;
+    this.detectionFrameCount += batch.frames;
+
+    if (!this.warmupComplete && this.frameCount >= WARMUP_FRAMES) {
+      this.warmupComplete = true;
+      this.minFps = Infinity;
+      this.maxFps = 0;
+    }
+
+    if (this.warmupComplete) {
+      // Extremes come from the real per-frame intervals, not the batch mean.
+      if (batch.maxIntervalMs > 0) {
+        this.minFps = Math.min(this.minFps, 1000 / batch.maxIntervalMs);
+      }
+      if (batch.minIntervalMs > 0) {
+        this.maxFps = Math.max(this.maxFps, 1000 / batch.minIntervalMs);
+      }
+    }
+
+    // A batch with no detections at all counts as one tracking-loss event.
+    const lost = batch.trackedFrames === 0;
+    if (this.lastTrackingValid && lost) {
+      this.trackingLostCount++;
+      this.currentConsecutiveLoss = batch.frames;
+    } else if (lost) {
+      this.currentConsecutiveLoss += batch.frames;
+    } else {
+      this.currentConsecutiveLoss = 0;
+    }
+    this.consecutiveTrackingLossMax = Math.max(
+      this.consecutiveTrackingLossMax,
+      this.currentConsecutiveLoss,
+    );
+    this.lastTrackingValid = !lost;
+  }
+
   recordFrameStart(): number {
     return Date.now();
   }

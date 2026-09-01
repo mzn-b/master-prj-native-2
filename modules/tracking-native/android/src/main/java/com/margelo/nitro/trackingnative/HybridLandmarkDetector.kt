@@ -37,7 +37,6 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
   private val lock = Any()
   private var isActive = false
   private var lastTimestampMs = -1L
-  private var detectCount = 0
 
   override val modelLoadTimeMs: Double
     get() = engine.modelLoadTimeMs.toDouble()
@@ -113,7 +112,6 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     val faces = faceResult?.faceLandmarks() ?: emptyList()
     val hands = handResult?.landmarks() ?: emptyList()
 
-    detectCount++
 
     val floats = FloatArray(faces.size * FACE_STRIDE + hands.size * HAND_STRIDE)
     var cursor = 0

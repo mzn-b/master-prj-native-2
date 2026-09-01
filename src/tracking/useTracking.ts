@@ -18,6 +18,35 @@ import {PerformanceTracker} from './PerformanceTracker';
 /** The only periodic React state update in the app. */
 const METRICS_INTERVAL_MS = 500;
 
+interface FrameStats {
+  frames: number;
+  intervalSumMs: number;
+  minIntervalMs: number;
+  maxIntervalMs: number;
+  inferenceSumMs: number;
+  processingSumMs: number;
+  facesSum: number;
+  handsSum: number;
+  trackedFrames: number;
+  lastAtMs: number;
+}
+
+function emptyStats(): FrameStats {
+  'worklet';
+  return {
+    frames: 0,
+    intervalSumMs: 0,
+    minIntervalMs: 0,
+    maxIntervalMs: 0,
+    inferenceSumMs: 0,
+    processingSumMs: 0,
+    facesSum: 0,
+    handsSum: 0,
+    trackedFrames: 0,
+    lastAtMs: 0,
+  };
+}
+
 export interface UseTrackingOptions {
   mode: TrackingMode;
   smoothingEnabled: boolean;
@@ -67,6 +96,11 @@ export function useTracking(options: UseTrackingOptions) {
   // worklet runtime and fails at runtime, not at compile time.
   const graceState = useSharedValue(emptyGraceState());
   const droppedFrames = useSharedValue(0);
+  /**
+   * Measurements accumulated on the worklet runtime and drained by the metrics
+   * tick. The tracker itself is a JS object and cannot be called from here.
+   */
+  const stats = useSharedValue(emptyStats());
 
   useEffect(() => {
     smoother.setConfig({enabled: options.smoothingEnabled});
@@ -77,9 +111,15 @@ export function useTracking(options: UseTrackingOptions) {
   }, [options.dynamicInferenceEnabled, governor]);
 
   const frameOutput = useFrameOutput({
-    // MediaPipe reads pixels on the CPU. The default 'native' format is a
-    // GPU-side buffer (PRIVATE on Android), which cannot be converted to a
-    // Bitmap at all — every detection silently returned empty.
+    /**
+     * Both platforms need a CPU-readable format.
+     *
+     * Android's native format is a GPU-side PRIVATE buffer that cannot be read
+     * at all. iOS looked like it could take its native buffer straight into
+     * MPImage, but in practice MPImage rejects it and every detection returns
+     * empty — measured on an iPhone SE: frames counted, 0 ms inference, no
+     * landmarks. Keep 'rgb' on both.
+     */
     pixelFormat: 'rgb',
     onFrame(frame) {
       'worklet';
@@ -102,11 +142,35 @@ export function useTracking(options: UseTrackingOptions) {
 
       const scheduled = asyncRunner.runAsync(() => {
         'worklet';
+        const startedAt = Date.now();
         try {
+          // Supply our own millisecond clock rather than frame.timestamp: its
+          // units differ per platform (iOS reports seconds), and MediaPipe's
+          // VIDEO mode silently returns nothing when the millisecond value does
+          // not strictly increase.
           // Keep this worklet minimal: the async runner has its own runtime,
           // where an imported worklet arrives as an object rather than a
           // function. Only HybridObjects and SharedValues are safe to touch.
-          latestRaw.value = boxedDetector.unbox().detect(frame, frame.timestamp);
+          const detection = boxedDetector.unbox().detect(frame, startedAt);
+          latestRaw.value = detection;
+
+          const finishedAt = Date.now();
+          const previous = stats.value;
+          const interval = previous.lastAtMs > 0 ? finishedAt - previous.lastAtMs : 0;
+          stats.value = {
+            frames: previous.frames + 1,
+            intervalSumMs: previous.intervalSumMs + interval,
+            minIntervalMs:
+              interval > 0 ? Math.min(previous.minIntervalMs || interval, interval) : previous.minIntervalMs,
+            maxIntervalMs: Math.max(previous.maxIntervalMs, interval),
+            inferenceSumMs: previous.inferenceSumMs + detection.inferenceTimeMs,
+            processingSumMs: previous.processingSumMs + (finishedAt - startedAt),
+            facesSum: previous.facesSum + detection.faceCount,
+            handsSum: previous.handsSum + detection.handCount,
+            trackedFrames:
+              previous.trackedFrames + (detection.faceCount + detection.handCount > 0 ? 1 : 0),
+            lastAtMs: finishedAt,
+          };
         } finally {
           frame.dispose();
         }
@@ -153,6 +217,7 @@ export function useTracking(options: UseTrackingOptions) {
     governor.reset();
     frameCounter.value = 0;
     frameSkip.value = 1;
+    stats.value = emptyStats();
     running.value = true;
     setIsRunning(true);
   }, [
@@ -166,6 +231,7 @@ export function useTracking(options: UseTrackingOptions) {
     running,
     graceState,
     droppedFrames,
+    stats,
   ]);
 
   const stop = useCallback((): PerformanceMetricsDTO | undefined => {
@@ -200,6 +266,12 @@ export function useTracking(options: UseTrackingOptions) {
       return;
     }
     const id = setInterval(() => {
+      // Drain the worklet's measurements onto the tracker.
+      const batch = stats.value;
+      if (batch.frames > 0) {
+        tracker.recordBatch(batch);
+        stats.value = {...emptyStats(), lastAtMs: batch.lastAtMs};
+      }
       // Drain the worklet's dropped-frame counter onto the tracker.
       if (droppedFrames.value > 0) {
         for (let i = 0; i < droppedFrames.value; i++) {
@@ -217,7 +289,7 @@ export function useTracking(options: UseTrackingOptions) {
       }
     }, METRICS_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [isRunning, tracker, governor, frameSkip, droppedFrames]);
+  }, [isRunning, tracker, governor, frameSkip, droppedFrames, stats]);
 
   return {
     isRunning,

@@ -189,14 +189,15 @@ export function CameraScreen(): React.JSX.Element {
   return (
     <View style={styles.root}>
       <View style={styles.preview} onLayout={onPreviewLayout}>
-        {device && hasPermission && isRunning ? (
-          // Bound only while a session runs: an idle screen should not hold the
-          // camera open, and an unsupported configuration must surface as a
-          // message rather than take the app down.
+        {device && hasPermission ? (
+          // Stays mounted and is controlled by isActive. Mounting and
+          // unmounting per session tears the capture session down each time,
+          // which trips an AVFoundation assertion on iOS
+          // (detachFromFigCaptureSession) and aborts the app.
           <Camera
             style={StyleSheet.absoluteFill}
             device={device}
-            isActive
+            isActive={isRunning}
             outputs={[frameOutput]}
             onError={error => setCameraError(error.message)}
           />

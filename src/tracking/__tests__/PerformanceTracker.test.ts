@@ -163,3 +163,86 @@ describe('PerformanceTracker', () => {
     expect(t.getMetrics().errorCount).toBe(2);
   });
 });
+
+describe('PerformanceTracker.recordBatch', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(0);
+  });
+  afterEach(() => jest.useRealTimers());
+
+  const batch = (over: Partial<Parameters<PerformanceTracker['recordBatch']>[0]> = {}) => ({
+    frames: 10,
+    intervalSumMs: 10 * 40,
+    minIntervalMs: 33,
+    maxIntervalMs: 50,
+    inferenceSumMs: 10 * 12,
+    processingSumMs: 10 * 20,
+    facesSum: 10,
+    handsSum: 5,
+    trackedFrames: 10,
+    ...over,
+  });
+
+  it('counts the frames it was given', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch());
+    expect(t.getMetrics().frameCount).toBe(10);
+  });
+
+  it('ignores an empty batch', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch({frames: 0}));
+    expect(t.getMetrics().frameCount).toBe(0);
+  });
+
+  it('derives fps from the mean frame interval', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch());
+    expect(t.getMetrics().fps).toBeCloseTo(25, 0); // 40 ms mean
+  });
+
+  it('averages inference time across the batch', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch());
+    expect(t.getMetrics().avgInferenceTimeMs).toBeCloseTo(12, 1);
+  });
+
+  it('completes warmup once enough frames have accumulated (F11)', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch({frames: WARMUP_FRAMES}));
+    expect(t.getMetrics().warmupComplete).toBe(true);
+  });
+
+  it('reports min/max fps from the real interval extremes after warmup', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch({frames: WARMUP_FRAMES}));
+    t.recordBatch(batch({minIntervalMs: 25, maxIntervalMs: 100}));
+    const m = t.getMetrics();
+    expect(m.maxFps).toBeCloseTo(40, 0); // 1000/25
+    expect(m.minFps).toBeCloseTo(10, 0); // 1000/100
+  });
+
+  it('counts a tracking loss when a whole batch saw nothing', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch());
+    t.recordBatch(batch({trackedFrames: 0, facesSum: 0, handsSum: 0}));
+    expect(t.getMetrics().trackingLostCount).toBe(1);
+  });
+
+  it('averages detections per frame', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch());
+    const m = t.getMetrics();
+    expect(m.facesDetectedAvg).toBeCloseTo(1, 5);
+    expect(m.handsDetectedAvg).toBeCloseTo(0.5, 5);
+  });
+});
