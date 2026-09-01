@@ -19,9 +19,14 @@ Pod::Spec.new do |s|
     "ios/**/*.swift"
   ]
 
+  # MediaPipe models, bundled into the app so no manual download step exists.
+  s.resources = ["assets/*.task"]
+
   load 'nitrogen/generated/ios/TrackingNative+autolinking.rb'
   add_nitrogen_files(s)
 
+  s.dependency 'MediaPipeTasksVision', '~> 1.0.0'
+  s.dependency 'VisionCamera'
   s.dependency 'React-jsi'
   s.dependency 'React-callinvoker'
   install_modules_dependencies(s)

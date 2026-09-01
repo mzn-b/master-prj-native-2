@@ -4,6 +4,7 @@ import com.facebook.react.BaseReactPackage
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.module.model.ReactModuleInfoProvider
+import com.facebook.react.uimanager.ViewManager
 
 /**
  * Exports no bridge modules — every HybridObject is registered from C++ by
@@ -20,14 +21,25 @@ import com.facebook.react.module.model.ReactModuleInfoProvider
  * will happily match a comment.
  */
 class TrackingNativePackage : BaseReactPackage() {
-  override fun getModule(name: String, reactContext: ReactApplicationContext): NativeModule? = null
+  override fun getModule(name: String, reactContext: ReactApplicationContext): NativeModule? {
+    // MediaPipe reads its models from assets, so the detector needs a Context.
+    VisionContextHolder.set(reactContext)
+    return null
+  }
 
   override fun getReactModuleInfoProvider(): ReactModuleInfoProvider =
     ReactModuleInfoProvider { emptyMap() }
 
+  override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
+    VisionContextHolder.set(reactContext)
+    return emptyList()
+  }
+
   companion object {
     init {
-      TrackingNativeOnLoad.initializeNative()
+      // Equivalent to the generated TrackingNativeOnLoad, which is `internal`
+      // and therefore not visible from Kotlin in another compilation unit.
+      System.loadLibrary("TrackingNative")
     }
   }
 }

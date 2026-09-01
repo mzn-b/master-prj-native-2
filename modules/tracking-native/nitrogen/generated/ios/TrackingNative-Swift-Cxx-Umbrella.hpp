@@ -8,14 +8,30 @@
 #pragma once
 
 // Forward declarations of C++ defined types
-// Forward declaration of `HybridMathTestSpec` to properly resolve imports.
-namespace margelo::nitro::trackingnative { class HybridMathTestSpec; }
+// Forward declaration of `DetectorConfig` to properly resolve imports.
+namespace margelo::nitro::trackingnative { struct DetectorConfig; }
+// Forward declaration of `HybridFrameSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridFrameSpec; }
+// Forward declaration of `HybridLandmarkDetectorSpec` to properly resolve imports.
+namespace margelo::nitro::trackingnative { class HybridLandmarkDetectorSpec; }
+// Forward declaration of `RawDetection` to properly resolve imports.
+namespace margelo::nitro::trackingnative { struct RawDetection; }
+// Forward declaration of `RawHandMeta` to properly resolve imports.
+namespace margelo::nitro::trackingnative { struct RawHandMeta; }
 
 // Include C++ defined types
-#include "HybridMathTestSpec.hpp"
+#include "DetectorConfig.hpp"
+#include "HybridLandmarkDetectorSpec.hpp"
+#include "RawDetection.hpp"
+#include "RawHandMeta.hpp"
+#include <NitroModules/ArrayBuffer.hpp>
 #include <NitroModules/Result.hpp>
+#include <VisionCamera/HybridFrameSpec.hpp>
 #include <exception>
 #include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
 // C++ helpers for Swift
 #include "TrackingNative-Swift-Cxx-Bridge.hpp"
@@ -27,8 +43,10 @@ namespace margelo::nitro::trackingnative { class HybridMathTestSpec; }
 #include <NitroModules/DateToChronoDate.hpp>
 
 // Forward declarations of Swift defined types
-// Forward declaration of `HybridMathTestSpec_cxx` to properly resolve imports.
-namespace TrackingNative { class HybridMathTestSpec_cxx; }
+// Forward declaration of `HybridFrameSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridFrameSpec_cxx; }
+// Forward declaration of `HybridLandmarkDetectorSpec_cxx` to properly resolve imports.
+namespace TrackingNative { class HybridLandmarkDetectorSpec_cxx; }
 
 // Include Swift defined types
 #if __has_include("TrackingNative-Swift.h")

@@ -1,7 +1,9 @@
 import {NitroModules} from 'react-native-nitro-modules';
-import type {MathTest} from './MathTest.nitro';
+import type {LandmarkDetector} from './LandmarkDetector.nitro';
 
-export type {MathTest};
+export type {DetectorConfig, LandmarkDetector, RawDetection, RawHandMeta} from './LandmarkDetector.nitro';
 
-/** Smoke-test HybridObject. Removed in Task 12. */
-export const mathTest = NitroModules.createHybridObject<MathTest>('MathTest');
+/** The MediaPipe face + hand detector, implemented in Swift and Kotlin. */
+export function createLandmarkDetector(): LandmarkDetector {
+  return NitroModules.createHybridObject<LandmarkDetector>('LandmarkDetector');
+}

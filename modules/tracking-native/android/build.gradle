@@ -51,6 +51,14 @@ android {
     }
   }
 
+  sourceSets {
+    main {
+      // MediaPipe .task models live once at the package root and are shared
+      // with the iOS build via the podspec's resources.
+      assets.srcDirs += ["../assets"]
+    }
+  }
+
   // Critical: this module links React Native's prefab libraries, but must not
   // package copies of them. Shipping a second libreactnative.so gives the app
   // two sets of RN's C++ statics, which empties the TurboModule registry
@@ -95,4 +103,9 @@ dependencies {
   //noinspection GradleDynamicVersion
   implementation "com.facebook.react:react-native:+"
   implementation project(":react-native-nitro-modules")
+  // The frame type this module receives comes from VisionCamera's Nitro specs.
+  implementation project(":react-native-vision-camera")
+  implementation "com.google.mediapipe:tasks-vision:1.0.0"
+  // ImageProxy and its Bitmap conversion.
+  implementation "androidx.camera:camera-core:1.5.2"
 }

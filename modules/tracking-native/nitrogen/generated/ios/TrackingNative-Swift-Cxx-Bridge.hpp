@@ -8,18 +8,32 @@
 #pragma once
 
 // Forward declarations of C++ defined types
-// Forward declaration of `HybridMathTestSpec` to properly resolve imports.
-namespace margelo::nitro::trackingnative { class HybridMathTestSpec; }
+// Forward declaration of `HybridFrameSpec` to properly resolve imports.
+namespace margelo::nitro::camera { class HybridFrameSpec; }
+// Forward declaration of `HybridLandmarkDetectorSpec` to properly resolve imports.
+namespace margelo::nitro::trackingnative { class HybridLandmarkDetectorSpec; }
+// Forward declaration of `RawDetection` to properly resolve imports.
+namespace margelo::nitro::trackingnative { struct RawDetection; }
+// Forward declaration of `RawHandMeta` to properly resolve imports.
+namespace margelo::nitro::trackingnative { struct RawHandMeta; }
 
 // Forward declarations of Swift defined types
-// Forward declaration of `HybridMathTestSpec_cxx` to properly resolve imports.
-namespace TrackingNative { class HybridMathTestSpec_cxx; }
+// Forward declaration of `HybridFrameSpec_cxx` to properly resolve imports.
+namespace VisionCamera { class HybridFrameSpec_cxx; }
+// Forward declaration of `HybridLandmarkDetectorSpec_cxx` to properly resolve imports.
+namespace TrackingNative { class HybridLandmarkDetectorSpec_cxx; }
 
 // Include C++ defined types
-#include "HybridMathTestSpec.hpp"
+#include "HybridLandmarkDetectorSpec.hpp"
+#include "RawDetection.hpp"
+#include "RawHandMeta.hpp"
 #include <NitroModules/Result.hpp>
+#include <VisionCamera/HybridFrameSpec.hpp>
 #include <exception>
 #include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
 /**
  * Contains specialized versions of C++ templated types so they can be accessed from Swift,
@@ -27,25 +41,98 @@ namespace TrackingNative { class HybridMathTestSpec_cxx; }
  */
 namespace margelo::nitro::trackingnative::bridge::swift {
 
-  // pragma MARK: std::shared_ptr<HybridMathTestSpec>
+  // pragma MARK: std::vector<std::string>
   /**
-   * Specialized version of `std::shared_ptr<HybridMathTestSpec>`.
+   * Specialized version of `std::vector<std::string>`.
    */
-  using std__shared_ptr_HybridMathTestSpec_ = std::shared_ptr<HybridMathTestSpec>;
-  std::shared_ptr<HybridMathTestSpec> create_std__shared_ptr_HybridMathTestSpec_(void* NON_NULL swiftUnsafePointer) noexcept;
-  void* NON_NULL get_std__shared_ptr_HybridMathTestSpec_(std__shared_ptr_HybridMathTestSpec_ cppType);
-  
-  // pragma MARK: std::weak_ptr<HybridMathTestSpec>
-  using std__weak_ptr_HybridMathTestSpec_ = std::weak_ptr<HybridMathTestSpec>;
-  inline std__weak_ptr_HybridMathTestSpec_ weakify_std__shared_ptr_HybridMathTestSpec_(const std::shared_ptr<HybridMathTestSpec>& strong) noexcept { return strong; }
-  
-  // pragma MARK: Result<double>
-  using Result_double_ = Result<double>;
-  inline Result_double_ create_Result_double_(double value) noexcept {
-    return Result<double>::withValue(std::move(value));
+  using std__vector_std__string_ = std::vector<std::string>;
+  inline std::vector<std::string> create_std__vector_std__string_(size_t size) noexcept {
+    std::vector<std::string> vector;
+    vector.reserve(size);
+    return vector;
   }
-  inline Result_double_ create_Result_double_(const std::exception_ptr& error) noexcept {
-    return Result<double>::withError(error);
+  
+  // pragma MARK: std::optional<std::string>
+  /**
+   * Specialized version of `std::optional<std::string>`.
+   */
+  using std__optional_std__string_ = std::optional<std::string>;
+  inline std::optional<std::string> create_std__optional_std__string_(const std::string& value) noexcept {
+    return std::optional<std::string>(value);
+  }
+  inline bool has_value_std__optional_std__string_(const std::optional<std::string>& optional) noexcept {
+    return optional.has_value();
+  }
+  inline std::string get_std__optional_std__string_(const std::optional<std::string>& optional) noexcept {
+    return optional.value();
+  }
+  
+  // pragma MARK: std::optional<double>
+  /**
+   * Specialized version of `std::optional<double>`.
+   */
+  using std__optional_double_ = std::optional<double>;
+  inline std::optional<double> create_std__optional_double_(const double& value) noexcept {
+    return std::optional<double>(value);
+  }
+  inline bool has_value_std__optional_double_(const std::optional<double>& optional) noexcept {
+    return optional.has_value();
+  }
+  inline double get_std__optional_double_(const std::optional<double>& optional) noexcept {
+    return optional.value();
+  }
+  
+  // pragma MARK: std::vector<RawHandMeta>
+  /**
+   * Specialized version of `std::vector<RawHandMeta>`.
+   */
+  using std__vector_RawHandMeta_ = std::vector<RawHandMeta>;
+  inline std::vector<RawHandMeta> create_std__vector_RawHandMeta_(size_t size) noexcept {
+    std::vector<RawHandMeta> vector;
+    vector.reserve(size);
+    return vector;
+  }
+  
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>
+  /**
+   * Specialized version of `std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>`.
+   */
+  using std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_ = std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>;
+  std::shared_ptr<margelo::nitro::camera::HybridFrameSpec> create_std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_(void* NON_NULL swiftUnsafePointer) noexcept;
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_(std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_ cppType);
+  
+  // pragma MARK: std::weak_ptr<margelo::nitro::camera::HybridFrameSpec>
+  using std__weak_ptr_margelo__nitro__camera__HybridFrameSpec_ = std::weak_ptr<margelo::nitro::camera::HybridFrameSpec>;
+  inline std__weak_ptr_margelo__nitro__camera__HybridFrameSpec_ weakify_std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_(const std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>& strong) noexcept { return strong; }
+  
+  // pragma MARK: std::shared_ptr<HybridLandmarkDetectorSpec>
+  /**
+   * Specialized version of `std::shared_ptr<HybridLandmarkDetectorSpec>`.
+   */
+  using std__shared_ptr_HybridLandmarkDetectorSpec_ = std::shared_ptr<HybridLandmarkDetectorSpec>;
+  std::shared_ptr<HybridLandmarkDetectorSpec> create_std__shared_ptr_HybridLandmarkDetectorSpec_(void* NON_NULL swiftUnsafePointer) noexcept;
+  void* NON_NULL get_std__shared_ptr_HybridLandmarkDetectorSpec_(std__shared_ptr_HybridLandmarkDetectorSpec_ cppType);
+  
+  // pragma MARK: std::weak_ptr<HybridLandmarkDetectorSpec>
+  using std__weak_ptr_HybridLandmarkDetectorSpec_ = std::weak_ptr<HybridLandmarkDetectorSpec>;
+  inline std__weak_ptr_HybridLandmarkDetectorSpec_ weakify_std__shared_ptr_HybridLandmarkDetectorSpec_(const std::shared_ptr<HybridLandmarkDetectorSpec>& strong) noexcept { return strong; }
+  
+  // pragma MARK: Result<void>
+  using Result_void_ = Result<void>;
+  inline Result_void_ create_Result_void_() noexcept {
+    return Result<void>::withValue();
+  }
+  inline Result_void_ create_Result_void_(const std::exception_ptr& error) noexcept {
+    return Result<void>::withError(error);
+  }
+  
+  // pragma MARK: Result<RawDetection>
+  using Result_RawDetection_ = Result<RawDetection>;
+  inline Result_RawDetection_ create_Result_RawDetection_(const RawDetection& value) noexcept {
+    return Result<RawDetection>::withValue(value);
+  }
+  inline Result_RawDetection_ create_Result_RawDetection_(const std::exception_ptr& error) noexcept {
+    return Result<RawDetection>::withError(error);
   }
 
 } // namespace margelo::nitro::trackingnative::bridge::swift

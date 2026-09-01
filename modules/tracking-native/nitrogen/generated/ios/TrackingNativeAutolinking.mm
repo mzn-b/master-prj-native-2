@@ -10,7 +10,7 @@
 #import "TrackingNative-Swift-Cxx-Umbrella.hpp"
 #import <type_traits>
 
-#include "HybridMathTestSpecSwift.hpp"
+#include "HybridLandmarkDetectorSpecSwift.hpp"
 
 @interface TrackingNativeAutolinking : NSObject
 @end
@@ -22,9 +22,9 @@
   using namespace margelo::nitro::trackingnative;
 
   HybridObjectRegistry::registerHybridObjectConstructor(
-    "MathTest",
+    "LandmarkDetector",
     []() -> std::shared_ptr<HybridObject> {
-      std::shared_ptr<HybridMathTestSpec> hybridObject = TrackingNative::TrackingNativeAutolinking::createMathTest();
+      std::shared_ptr<HybridLandmarkDetectorSpec> hybridObject = TrackingNative::TrackingNativeAutolinking::createLandmarkDetector();
       return hybridObject;
     }
   );

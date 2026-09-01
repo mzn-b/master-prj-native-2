@@ -25,8 +25,13 @@ include_directories("src/main/cpp")
 
 find_library(LOG_LIB log)
 
+# The detector takes a VisionCamera Frame, so it needs VisionCamera's generated
+# HybridFrameSpec headers, published as a prefab module.
+find_package(react-native-vision-camera REQUIRED CONFIG)
+
 target_link_libraries(
         ${PACKAGE_NAME}
         ${LOG_LIB}
         android
+        react-native-vision-camera::VisionCamera
 )

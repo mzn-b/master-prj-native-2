@@ -12,15 +12,15 @@ import NitroModules
 public final class TrackingNativeAutolinking {
   public typealias bridge = margelo.nitro.trackingnative.bridge.swift
 
-  public static func createMathTest() -> bridge.std__shared_ptr_HybridMathTestSpec_ {
-    let hybridObject = HybridMathTest()
-    return { () -> bridge.std__shared_ptr_HybridMathTestSpec_ in
+  public static func createLandmarkDetector() -> bridge.std__shared_ptr_HybridLandmarkDetectorSpec_ {
+    let hybridObject = HybridLandmarkDetector()
+    return { () -> bridge.std__shared_ptr_HybridLandmarkDetectorSpec_ in
       let __cxxWrapped = hybridObject.getCxxWrapper()
       return __cxxWrapped.getCxxPart()
     }()
   }
   
-  public static func isMathTestRecyclable() -> Bool {
-    return HybridMathTest.self is any RecyclableView.Type
+  public static func isLandmarkDetectorRecyclable() -> Bool {
+    return HybridLandmarkDetector.self is any RecyclableView.Type
   }
 }

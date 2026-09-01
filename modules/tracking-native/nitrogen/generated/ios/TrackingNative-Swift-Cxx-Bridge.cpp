@@ -8,25 +8,36 @@
 #include "TrackingNative-Swift-Cxx-Bridge.hpp"
 
 // Include C++ implementation defined types
-#include "HybridMathTestSpecSwift.hpp"
+#include "HybridLandmarkDetectorSpecSwift.hpp"
 #include "TrackingNative-Swift-Cxx-Umbrella.hpp"
 #include <NitroModules/NitroDefines.hpp>
+#include <VisionCamera/VisionCamera-Swift-Cxx-Bridge.hpp>
 
 namespace margelo::nitro::trackingnative::bridge::swift {
 
-  // pragma MARK: std::shared_ptr<HybridMathTestSpec>
-  std::shared_ptr<HybridMathTestSpec> create_std__shared_ptr_HybridMathTestSpec_(void* NON_NULL swiftUnsafePointer) noexcept {
-    TrackingNative::HybridMathTestSpec_cxx swiftPart = TrackingNative::HybridMathTestSpec_cxx::fromUnsafe(swiftUnsafePointer);
-    return std::make_shared<margelo::nitro::trackingnative::HybridMathTestSpecSwift>(swiftPart);
+  // pragma MARK: std::shared_ptr<margelo::nitro::camera::HybridFrameSpec>
+  std::shared_ptr<margelo::nitro::camera::HybridFrameSpec> create_std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_(void* NON_NULL swiftUnsafePointer) noexcept {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::create_std__shared_ptr_HybridFrameSpec_(swiftUnsafePointer);
   }
-  void* NON_NULL get_std__shared_ptr_HybridMathTestSpec_(std__shared_ptr_HybridMathTestSpec_ cppType) {
-    std::shared_ptr<margelo::nitro::trackingnative::HybridMathTestSpecSwift> swiftWrapper = std::dynamic_pointer_cast<margelo::nitro::trackingnative::HybridMathTestSpecSwift>(cppType);
+  void* NON_NULL get_std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_(std__shared_ptr_margelo__nitro__camera__HybridFrameSpec_ cppType) {
+    // Implemented in VisionCamera
+    return margelo::nitro::camera::bridge::swift::get_std__shared_ptr_HybridFrameSpec_(cppType);
+  }
+  
+  // pragma MARK: std::shared_ptr<HybridLandmarkDetectorSpec>
+  std::shared_ptr<HybridLandmarkDetectorSpec> create_std__shared_ptr_HybridLandmarkDetectorSpec_(void* NON_NULL swiftUnsafePointer) noexcept {
+    TrackingNative::HybridLandmarkDetectorSpec_cxx swiftPart = TrackingNative::HybridLandmarkDetectorSpec_cxx::fromUnsafe(swiftUnsafePointer);
+    return std::make_shared<margelo::nitro::trackingnative::HybridLandmarkDetectorSpecSwift>(swiftPart);
+  }
+  void* NON_NULL get_std__shared_ptr_HybridLandmarkDetectorSpec_(std__shared_ptr_HybridLandmarkDetectorSpec_ cppType) {
+    std::shared_ptr<margelo::nitro::trackingnative::HybridLandmarkDetectorSpecSwift> swiftWrapper = std::dynamic_pointer_cast<margelo::nitro::trackingnative::HybridLandmarkDetectorSpecSwift>(cppType);
     #ifdef NITRO_DEBUG
     if (swiftWrapper == nullptr) [[unlikely]] {
-      throw std::runtime_error("Class \"HybridMathTestSpec\" is not implemented in Swift!");
+      throw std::runtime_error("Class \"HybridLandmarkDetectorSpec\" is not implemented in Swift!");
     }
     #endif
-    TrackingNative::HybridMathTestSpec_cxx& swiftPart = swiftWrapper->getSwiftPart();
+    TrackingNative::HybridLandmarkDetectorSpec_cxx& swiftPart = swiftWrapper->getSwiftPart();
     return swiftPart.toUnsafe();
   }
 

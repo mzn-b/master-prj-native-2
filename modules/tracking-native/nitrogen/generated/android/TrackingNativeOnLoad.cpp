@@ -15,7 +15,7 @@
 #include <fbjni/fbjni.h>
 #include <NitroModules/HybridObjectRegistry.hpp>
 
-#include "JHybridMathTestSpec.hpp"
+#include "JHybridLandmarkDetectorSpec.hpp"
 #include <NitroModules/DefaultConstructableObject.hpp>
 
 namespace margelo::nitro::trackingnative {
@@ -26,12 +26,12 @@ int initialize(JavaVM* vm) {
   });
 }
 
-struct JHybridMathTestSpecImpl: public jni::JavaClass<JHybridMathTestSpecImpl, JHybridMathTestSpec::JavaPart> {
-  static constexpr auto kJavaDescriptor = "Lcom/margelo/nitro/trackingnative/HybridMathTest;";
-  static std::shared_ptr<JHybridMathTestSpec> create() {
-    static const auto constructorFn = javaClassStatic()->getConstructor<JHybridMathTestSpecImpl::javaobject()>();
-    jni::local_ref<JHybridMathTestSpec::JavaPart> javaPart = javaClassStatic()->newObject(constructorFn);
-    return javaPart->getJHybridMathTestSpec();
+struct JHybridLandmarkDetectorSpecImpl: public jni::JavaClass<JHybridLandmarkDetectorSpecImpl, JHybridLandmarkDetectorSpec::JavaPart> {
+  static constexpr auto kJavaDescriptor = "Lcom/margelo/nitro/trackingnative/HybridLandmarkDetector;";
+  static std::shared_ptr<JHybridLandmarkDetectorSpec> create() {
+    static const auto constructorFn = javaClassStatic()->getConstructor<JHybridLandmarkDetectorSpecImpl::javaobject()>();
+    jni::local_ref<JHybridLandmarkDetectorSpec::JavaPart> javaPart = javaClassStatic()->newObject(constructorFn);
+    return javaPart->getJHybridLandmarkDetectorSpec();
   }
 };
 
@@ -40,13 +40,13 @@ void registerAllNatives() {
   using namespace margelo::nitro::trackingnative;
 
   // Register native JNI methods
-  margelo::nitro::trackingnative::JHybridMathTestSpec::CxxPart::registerNatives();
+  margelo::nitro::trackingnative::JHybridLandmarkDetectorSpec::CxxPart::registerNatives();
 
   // Register Nitro Hybrid Objects
   HybridObjectRegistry::registerHybridObjectConstructor(
-    "MathTest",
+    "LandmarkDetector",
     []() -> std::shared_ptr<HybridObject> {
-      return JHybridMathTestSpecImpl::create();
+      return JHybridLandmarkDetectorSpecImpl::create();
     }
   );
 }

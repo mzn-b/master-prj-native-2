@@ -33,9 +33,9 @@ target_sources(
   # Autolinking Setup
   ../nitrogen/generated/android/TrackingNativeOnLoad.cpp
   # Shared Nitrogen C++ sources
-  ../nitrogen/generated/shared/c++/HybridMathTestSpec.cpp
+  ../nitrogen/generated/shared/c++/HybridLandmarkDetectorSpec.cpp
   # Android-specific Nitrogen C++ sources
-  ../nitrogen/generated/android/c++/JHybridMathTestSpec.cpp
+  ../nitrogen/generated/android/c++/JHybridLandmarkDetectorSpec.cpp
 )
 
 # From node_modules/react-native/ReactAndroid/cmake-utils/folly-flags.cmake

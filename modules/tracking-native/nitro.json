@@ -12,14 +12,14 @@
     "androidCxxLibName": "TrackingNative"
   },
   "autolinking": {
-    "MathTest": {
+    "LandmarkDetector": {
       "ios": {
         "language": "swift",
-        "implementationClassName": "HybridMathTest"
+        "implementationClassName": "HybridLandmarkDetector"
       },
       "android": {
         "language": "kotlin",
-        "implementationClassName": "HybridMathTest"
+        "implementationClassName": "HybridLandmarkDetector"
       }
     }
   },
