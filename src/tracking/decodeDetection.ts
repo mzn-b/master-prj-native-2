@@ -6,6 +6,7 @@ import {
   VALUES_PER_POINT,
   faceOffset,
   handOffset,
+  toHandedness,
   type RawDetection,
 } from '../native/landmarkFormat';
 
@@ -53,7 +54,7 @@ export function decodeDetection(raw: RawDetection, mode: TrackingMode): Tracking
     for (let i = 0; i < raw.handCount; i++) {
       const meta = raw.hands[i];
       hands.push({
-        handedness: meta?.handedness ?? ('Unknown' as const),
+        handedness: toHandedness(meta?.handedness),
         landmarks: readPoints(values, handOffset(raw.faceCount, i), HAND_LANDMARK_COUNT),
         gesture: meta?.gesture,
         gestureScore: meta?.gestureScore,

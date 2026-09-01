@@ -34,25 +34,15 @@ export function handOffset(faceCount: number, i: number): number {
   return faceCount * FACE_STRIDE + i * HAND_STRIDE;
 }
 
-export interface RawHandMeta {
-  handedness: 'Left' | 'Right' | 'Unknown';
-  /** F13 — top gesture label from the GestureRecognizer. */
-  gesture?: string;
-  gestureScore?: number;
-}
+/**
+ * The detector's payload types come from the Nitro spec, which is the single
+ * source of truth — redeclaring them here would let the two drift silently.
+ */
+export type {RawDetection, RawHandMeta} from 'tracking-native';
 
-/** Exactly what the LandmarkDetector HybridObject returns per frame. */
-export interface RawDetection {
-  timestampMs: number;
-  faceCount: number;
-  handCount: number;
-  /** Float32, packed as described above. */
-  landmarks: ArrayBuffer;
-  /** Float32, faceCount * BLENDSHAPE_COUNT scores; empty when unavailable. */
-  blendshapes: ArrayBuffer;
-  /** Category names, parallel to each face's blendshape block. */
-  blendshapeNames: string[];
-  hands: RawHandMeta[];
-  /** Time spent inside MediaPipe only, matching the PWA's definition. */
-  inferenceTimeMs: number;
+export type Handedness = 'Left' | 'Right' | 'Unknown';
+
+/** Narrow the native side's free-form string to the DTO's union. */
+export function toHandedness(value: string | undefined): Handedness {
+  return value === 'Left' || value === 'Right' ? value : 'Unknown';
 }
