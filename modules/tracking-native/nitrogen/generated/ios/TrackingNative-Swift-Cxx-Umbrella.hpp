@@ -14,6 +14,10 @@ namespace margelo::nitro::trackingnative { struct DetectorConfig; }
 namespace margelo::nitro::camera { class HybridFrameSpec; }
 // Forward declaration of `HybridLandmarkDetectorSpec` to properly resolve imports.
 namespace margelo::nitro::trackingnative { class HybridLandmarkDetectorSpec; }
+// Forward declaration of `HybridNativeMetricsSpec` to properly resolve imports.
+namespace margelo::nitro::trackingnative { class HybridNativeMetricsSpec; }
+// Forward declaration of `NativeMetricsSnapshot` to properly resolve imports.
+namespace margelo::nitro::trackingnative { struct NativeMetricsSnapshot; }
 // Forward declaration of `RawDetection` to properly resolve imports.
 namespace margelo::nitro::trackingnative { struct RawDetection; }
 // Forward declaration of `RawHandMeta` to properly resolve imports.
@@ -22,6 +26,8 @@ namespace margelo::nitro::trackingnative { struct RawHandMeta; }
 // Include C++ defined types
 #include "DetectorConfig.hpp"
 #include "HybridLandmarkDetectorSpec.hpp"
+#include "HybridNativeMetricsSpec.hpp"
+#include "NativeMetricsSnapshot.hpp"
 #include "RawDetection.hpp"
 #include "RawHandMeta.hpp"
 #include <NitroModules/ArrayBuffer.hpp>
@@ -47,6 +53,8 @@ namespace margelo::nitro::trackingnative { struct RawHandMeta; }
 namespace VisionCamera { class HybridFrameSpec_cxx; }
 // Forward declaration of `HybridLandmarkDetectorSpec_cxx` to properly resolve imports.
 namespace TrackingNative { class HybridLandmarkDetectorSpec_cxx; }
+// Forward declaration of `HybridNativeMetricsSpec_cxx` to properly resolve imports.
+namespace TrackingNative { class HybridNativeMetricsSpec_cxx; }
 
 // Include Swift defined types
 #if __has_include("TrackingNative-Swift.h")

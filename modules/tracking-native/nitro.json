@@ -21,6 +21,16 @@
         "language": "kotlin",
         "implementationClassName": "HybridLandmarkDetector"
       }
+    },
+    "NativeMetrics": {
+      "ios": {
+        "language": "swift",
+        "implementationClassName": "HybridNativeMetrics"
+      },
+      "android": {
+        "language": "kotlin",
+        "implementationClassName": "HybridNativeMetrics"
+      }
     }
   },
   "ignorePaths": [

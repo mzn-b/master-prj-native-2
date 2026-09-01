@@ -16,6 +16,7 @@
 #include <NitroModules/HybridObjectRegistry.hpp>
 
 #include "JHybridLandmarkDetectorSpec.hpp"
+#include "JHybridNativeMetricsSpec.hpp"
 #include <NitroModules/DefaultConstructableObject.hpp>
 
 namespace margelo::nitro::trackingnative {
@@ -34,6 +35,14 @@ struct JHybridLandmarkDetectorSpecImpl: public jni::JavaClass<JHybridLandmarkDet
     return javaPart->getJHybridLandmarkDetectorSpec();
   }
 };
+struct JHybridNativeMetricsSpecImpl: public jni::JavaClass<JHybridNativeMetricsSpecImpl, JHybridNativeMetricsSpec::JavaPart> {
+  static constexpr auto kJavaDescriptor = "Lcom/margelo/nitro/trackingnative/HybridNativeMetrics;";
+  static std::shared_ptr<JHybridNativeMetricsSpec> create() {
+    static const auto constructorFn = javaClassStatic()->getConstructor<JHybridNativeMetricsSpecImpl::javaobject()>();
+    jni::local_ref<JHybridNativeMetricsSpec::JavaPart> javaPart = javaClassStatic()->newObject(constructorFn);
+    return javaPart->getJHybridNativeMetricsSpec();
+  }
+};
 
 void registerAllNatives() {
   using namespace margelo::nitro;
@@ -41,12 +50,19 @@ void registerAllNatives() {
 
   // Register native JNI methods
   margelo::nitro::trackingnative::JHybridLandmarkDetectorSpec::CxxPart::registerNatives();
+  margelo::nitro::trackingnative::JHybridNativeMetricsSpec::CxxPart::registerNatives();
 
   // Register Nitro Hybrid Objects
   HybridObjectRegistry::registerHybridObjectConstructor(
     "LandmarkDetector",
     []() -> std::shared_ptr<HybridObject> {
       return JHybridLandmarkDetectorSpecImpl::create();
+    }
+  );
+  HybridObjectRegistry::registerHybridObjectConstructor(
+    "NativeMetrics",
+    []() -> std::shared_ptr<HybridObject> {
+      return JHybridNativeMetricsSpecImpl::create();
     }
   );
 }

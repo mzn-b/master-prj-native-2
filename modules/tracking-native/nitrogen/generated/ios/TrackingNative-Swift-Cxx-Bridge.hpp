@@ -12,6 +12,10 @@
 namespace margelo::nitro::camera { class HybridFrameSpec; }
 // Forward declaration of `HybridLandmarkDetectorSpec` to properly resolve imports.
 namespace margelo::nitro::trackingnative { class HybridLandmarkDetectorSpec; }
+// Forward declaration of `HybridNativeMetricsSpec` to properly resolve imports.
+namespace margelo::nitro::trackingnative { class HybridNativeMetricsSpec; }
+// Forward declaration of `NativeMetricsSnapshot` to properly resolve imports.
+namespace margelo::nitro::trackingnative { struct NativeMetricsSnapshot; }
 // Forward declaration of `RawDetection` to properly resolve imports.
 namespace margelo::nitro::trackingnative { struct RawDetection; }
 // Forward declaration of `RawHandMeta` to properly resolve imports.
@@ -22,9 +26,13 @@ namespace margelo::nitro::trackingnative { struct RawHandMeta; }
 namespace VisionCamera { class HybridFrameSpec_cxx; }
 // Forward declaration of `HybridLandmarkDetectorSpec_cxx` to properly resolve imports.
 namespace TrackingNative { class HybridLandmarkDetectorSpec_cxx; }
+// Forward declaration of `HybridNativeMetricsSpec_cxx` to properly resolve imports.
+namespace TrackingNative { class HybridNativeMetricsSpec_cxx; }
 
 // Include C++ defined types
 #include "HybridLandmarkDetectorSpec.hpp"
+#include "HybridNativeMetricsSpec.hpp"
+#include "NativeMetricsSnapshot.hpp"
 #include "RawDetection.hpp"
 #include "RawHandMeta.hpp"
 #include <NitroModules/Result.hpp>
@@ -133,6 +141,42 @@ namespace margelo::nitro::trackingnative::bridge::swift {
   }
   inline Result_RawDetection_ create_Result_RawDetection_(const std::exception_ptr& error) noexcept {
     return Result<RawDetection>::withError(error);
+  }
+  
+  // pragma MARK: std::optional<bool>
+  /**
+   * Specialized version of `std::optional<bool>`.
+   */
+  using std__optional_bool_ = std::optional<bool>;
+  inline std::optional<bool> create_std__optional_bool_(const bool& value) noexcept {
+    return std::optional<bool>(value);
+  }
+  inline bool has_value_std__optional_bool_(const std::optional<bool>& optional) noexcept {
+    return optional.has_value();
+  }
+  inline bool get_std__optional_bool_(const std::optional<bool>& optional) noexcept {
+    return optional.value();
+  }
+  
+  // pragma MARK: std::shared_ptr<HybridNativeMetricsSpec>
+  /**
+   * Specialized version of `std::shared_ptr<HybridNativeMetricsSpec>`.
+   */
+  using std__shared_ptr_HybridNativeMetricsSpec_ = std::shared_ptr<HybridNativeMetricsSpec>;
+  std::shared_ptr<HybridNativeMetricsSpec> create_std__shared_ptr_HybridNativeMetricsSpec_(void* NON_NULL swiftUnsafePointer) noexcept;
+  void* NON_NULL get_std__shared_ptr_HybridNativeMetricsSpec_(std__shared_ptr_HybridNativeMetricsSpec_ cppType);
+  
+  // pragma MARK: std::weak_ptr<HybridNativeMetricsSpec>
+  using std__weak_ptr_HybridNativeMetricsSpec_ = std::weak_ptr<HybridNativeMetricsSpec>;
+  inline std__weak_ptr_HybridNativeMetricsSpec_ weakify_std__shared_ptr_HybridNativeMetricsSpec_(const std::shared_ptr<HybridNativeMetricsSpec>& strong) noexcept { return strong; }
+  
+  // pragma MARK: Result<NativeMetricsSnapshot>
+  using Result_NativeMetricsSnapshot_ = Result<NativeMetricsSnapshot>;
+  inline Result_NativeMetricsSnapshot_ create_Result_NativeMetricsSnapshot_(const NativeMetricsSnapshot& value) noexcept {
+    return Result<NativeMetricsSnapshot>::withValue(value);
+  }
+  inline Result_NativeMetricsSnapshot_ create_Result_NativeMetricsSnapshot_(const std::exception_ptr& error) noexcept {
+    return Result<NativeMetricsSnapshot>::withError(error);
   }
 
 } // namespace margelo::nitro::trackingnative::bridge::swift

@@ -1,26 +1,23 @@
-/**
- * OS-level metrics that only native code can read.
- *
- * The implementation is wired to the NativeMetrics HybridObject in Task 15;
- * until then it reports nothing, and every consumer already treats each field
- * as optional because no platform provides all of them.
- */
-export interface NativeMetricsSnapshot {
-  cpuUsagePercent?: number;
-  memoryUsedMB?: number;
-  totalMemoryMB?: number;
-  availableMemoryMB?: number;
-  cpuCores?: number;
-  threadCount?: number;
-  /** nominal | fair | serious | critical — same scale on both platforms. */
-  thermalState?: string;
-  /** 0..100. */
-  batteryLevel?: number;
-  batteryCharging?: boolean;
-  gpuVendor?: string;
-  gpuRenderer?: string;
-}
+import {createNativeMetrics, type NativeMetricsSnapshot} from 'tracking-native';
 
+export type {NativeMetricsSnapshot};
+
+let cached: ReturnType<typeof createNativeMetrics> | null = null;
+
+/**
+ * OS-level metrics. Every field is optional: no platform provides all of them,
+ * and the thesis reports asymmetric metrics as one-sided observations rather
+ * than inventing values.
+ *
+ * `batteryLevel` is a percentage (0..100) on both platforms — see
+ * docs/pwa-followups.md #6 for why that normalisation matters.
+ */
 export function getNativeMetrics(): NativeMetricsSnapshot {
-  return {};
+  try {
+    cached ??= createNativeMetrics();
+    return cached.snapshot();
+  } catch {
+    // Metrics are best-effort; never let them break a tracking session.
+    return {};
+  }
 }

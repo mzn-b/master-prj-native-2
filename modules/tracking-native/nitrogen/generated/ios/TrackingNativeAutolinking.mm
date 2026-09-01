@@ -11,6 +11,7 @@
 #import <type_traits>
 
 #include "HybridLandmarkDetectorSpecSwift.hpp"
+#include "HybridNativeMetricsSpecSwift.hpp"
 
 @interface TrackingNativeAutolinking : NSObject
 @end
@@ -25,6 +26,13 @@
     "LandmarkDetector",
     []() -> std::shared_ptr<HybridObject> {
       std::shared_ptr<HybridLandmarkDetectorSpec> hybridObject = TrackingNative::TrackingNativeAutolinking::createLandmarkDetector();
+      return hybridObject;
+    }
+  );
+  HybridObjectRegistry::registerHybridObjectConstructor(
+    "NativeMetrics",
+    []() -> std::shared_ptr<HybridObject> {
+      std::shared_ptr<HybridNativeMetricsSpec> hybridObject = TrackingNative::TrackingNativeAutolinking::createNativeMetrics();
       return hybridObject;
     }
   );

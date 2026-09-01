@@ -23,4 +23,16 @@ public final class TrackingNativeAutolinking {
   public static func isLandmarkDetectorRecyclable() -> Bool {
     return HybridLandmarkDetector.self is any RecyclableView.Type
   }
+  
+  public static func createNativeMetrics() -> bridge.std__shared_ptr_HybridNativeMetricsSpec_ {
+    let hybridObject = HybridNativeMetrics()
+    return { () -> bridge.std__shared_ptr_HybridNativeMetricsSpec_ in
+      let __cxxWrapped = hybridObject.getCxxWrapper()
+      return __cxxWrapped.getCxxPart()
+    }()
+  }
+  
+  public static func isNativeMetricsRecyclable() -> Bool {
+    return HybridNativeMetrics.self is any RecyclableView.Type
+  }
 }
