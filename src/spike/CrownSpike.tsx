@@ -37,7 +37,7 @@ export function CrownSpike(): React.JSX.Element {
       const h = live?.height ?? 0;
       if (w > 0 && h > 0) {
         startedRef.current = true;
-        void init(w, h);
+        init(w, h).catch(() => {/* handled via status */});
         return;
       }
       setStatus(`waiting for layout — surface ${w}x${h}`);
