@@ -1,0 +1,31 @@
+{
+  "cxxNamespace": [
+    "trackingnative"
+  ],
+  "ios": {
+    "iosModuleName": "TrackingNative"
+  },
+  "android": {
+    "androidNamespace": [
+      "trackingnative"
+    ],
+    "androidCxxLibName": "TrackingNative"
+  },
+  "autolinking": {
+    "MathTest": {
+      "ios": {
+        "language": "swift",
+        "implementationClassName": "HybridMathTest"
+      },
+      "android": {
+        "language": "kotlin",
+        "implementationClassName": "HybridMathTest"
+      }
+    }
+  },
+  "ignorePaths": [
+    "node_modules",
+    "android",
+    "ios"
+  ]
+}

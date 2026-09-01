@@ -1,0 +1,28 @@
+{
+  "name": "tracking-native",
+  "version": "1.0.0",
+  "description": "Nitro modules backing the AR filter tracking pipeline (MediaPipe detection, OS metrics).",
+  "main": "src/index.ts",
+  "source": "src/index.ts",
+  "private": true,
+  "author": "Mazen El-shaarawi",
+  "license": "MIT",
+  "homepage": "https://github.com/masterprj/master-prj-native-2",
+  "files": [
+    "src",
+    "react-native.config.js",
+    "nitrogen",
+    "nitro.json",
+    "android/build.gradle",
+    "android/gradle.properties",
+    "android/CMakeLists.txt",
+    "android/src",
+    "ios/**/*.swift",
+    "*.podspec"
+  ],
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-nitro-modules": "*"
+  }
+}

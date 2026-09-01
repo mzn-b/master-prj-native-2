@@ -1938,6 +1938,30 @@ PODS:
     - Yoga
   - SocketRocket (0.7.1):
     - ReactNativeDependencies
+  - TrackingNative (1.0.0):
+    - hermes-engine
+    - NitroModules
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-callinvoker
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - VisionCamera (5.2.3):
     - hermes-engine
     - NitroImage
@@ -2085,6 +2109,7 @@ DEPENDENCIES:
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
   - SocketRocket (from `build/rndeps-facades/SocketRocket`)
+  - TrackingNative (from `../node_modules/tracking-native`)
   - VisionCamera (from `../node_modules/react-native-vision-camera`)
   - VisionCameraWorklets (from `../node_modules/react-native-vision-camera-worklets`)
   - Yoga (from `build/rncore-facades/Yoga`)
@@ -2273,6 +2298,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-worklets"
   SocketRocket:
     :path: build/rndeps-facades/SocketRocket
+  TrackingNative:
+    :path: "../node_modules/tracking-native"
   VisionCamera:
     :path: "../node_modules/react-native-vision-camera"
   VisionCameraWorklets:
@@ -2372,6 +2399,7 @@ SPEC CHECKSUMS:
   RNReanimated: 7dde9b7b1c4eea6dc8edade25db1942593feb0ba
   RNWorklets: 0f21cfc67d4ac5dcd085805b89236cc626a038f6
   SocketRocket: d57b1af80c029e12a75cd9b218287c67381e4593
+  TrackingNative: a41a20718812ec45fc4a314af2cf6878e989b33f
   VisionCamera: 086fa6b679d0f32c4ce2fab3507fc54790262546
   VisionCameraWorklets: 631101539cd37cfb03efe63022ceee4e2a5a659a
   Yoga: 58b502c52b14ad3c4468805d461fc37d275c2a42

@@ -7,7 +7,8 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "nitrogen": "cd modules/tracking-native && nitrogen"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.87.1",
@@ -22,7 +23,8 @@
     "react-native-vision-camera-worklets": "5.2.3",
     "react-native-webgpu": "0.8.5",
     "react-native-worklets": "0.12.1",
-    "three": "0.185.1"
+    "three": "0.185.1",
+    "tracking-native": "file:./modules/tracking-native"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
