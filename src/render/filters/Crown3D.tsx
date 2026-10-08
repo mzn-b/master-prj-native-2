@@ -126,6 +126,23 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
   const {device} = useDevice();
   const startedRef = useRef(false);
 
+  /**
+   * Geometry is read through a ref, NOT captured from the effect's closure.
+   *
+   * It was an effect dependency, and `frameDims` inside it only becomes known
+   * when the first camera frame arrives — after initialisation has already
+   * begun. The resulting identity change ran the cleanup, which sets
+   * `disposed = true` and so permanently stops `tick`; the re-run then hit the
+   * `startedRef.current` guard and returned without starting a new loop. The
+   * crown initialised successfully and then drew nothing, with no error, on the
+   * first run of every launch. The second run worked because frameDims was
+   * already settled by then.
+   */
+  const geometryRef = useRef(geometry);
+  useEffect(() => {
+    geometryRef.current = geometry;
+  }, [geometry]);
+
   useEffect(() => {
     if (!device || !surface || startedRef.current) {
       return;
@@ -239,7 +256,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
           const base = faceOffset(0);
           const project = (index: number) => {
             const at = base + index * VALUES_PER_POINT;
-            return projectNormalized(values[at], values[at + 1], geometry);
+            return projectNormalized(values[at], values[at + 1], geometryRef.current);
           };
 
           // Measure entirely in projected screen space. Offsetting a normalized
@@ -275,7 +292,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
           // Screen-space roll already accounts for frame rotation and mirroring,
           // because it is measured between projected points.
           const roll = Math.atan2(rightTemple.y - leftTemple.y, rightTemple.x - leftTemple.x);
-          const handedness = geometry.mirrorX ? -1 : 1;
+          const handedness = geometryRef.current.mirrorX ? -1 : 1;
 
           // Ratios rather than raw offsets, so the pose does not change with how
           // large the face is in frame. Clamped like the PWA: without a limit the
@@ -329,7 +346,9 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       disposed = true;
       cancelAnimationFrame(frame);
     };
-  }, [device, surface, ref, latest, geometry]);
+    // geometry is deliberately absent: see geometryRef above. Including it
+    // tore down the render loop the moment the camera reported its frame size.
+  }, [device, surface, ref, latest]);
 
   return <Canvas ref={ref} style={StyleSheet.absoluteFill} transparent />;
 }
