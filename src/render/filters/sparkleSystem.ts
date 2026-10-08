@@ -1,7 +1,14 @@
 /**
- * Sparkle particle physics, kept free of React and Skia so it can be tested
- * directly. Matches the PWA's system: gravity, a spread of initial velocities,
- * and a 0.6–1.2 s fade.
+ * Sparkle particle physics, kept free of any renderer so it can be tested
+ * directly.
+ *
+ * This file is duplicated byte-for-byte in the other app. The two systems had
+ * drifted into different algorithms — the PWA used an upward burst with
+ * half the gravity, random particle sizes and a 150-particle cap, and spawned
+ * once per *rendered frame* while native spawned on a fixed timer, so the PWA
+ * emitted two to four times as many particles per second depending on display
+ * rate. That is a visible product difference on a filter participants are asked
+ * to rate, and more work per second on the same nominal filter.
  */
 export interface Particle {
   x: number;

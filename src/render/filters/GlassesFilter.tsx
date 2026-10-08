@@ -13,7 +13,14 @@ const RIGHT_EYE_OUTER = 263;
  * and 263 are the OUTER corners, so they already span most of the face — a
  * large multiplier here made the glasses far too wide.
  */
-const WIDTH_SCALE = 1.25;
+/**
+ * Frame width as a multiple of the outer-eye distance.
+ *
+ * Matched to the PWA, which drew at 1.5 while this was 1.25 — the glasses were
+ * 20 % narrower here on a filter participants are asked to rate against the
+ * other app. filterParity.test.ts pins the two together.
+ */
+const WIDTH_SCALE = 1.5;
 /**
  * Fallback aspect (height / width) for the frames before the image has loaded.
  *
