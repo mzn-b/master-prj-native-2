@@ -20,6 +20,7 @@ import {useTracking} from '../tracking/useTracking';
 import {LandmarkOverlay} from '../render/LandmarkOverlay';
 import type {Rotation, ViewGeometry} from '../render/coordinates';
 import {FilterLayer} from '../render/filters/FilterLayer';
+import {prewarmCrownModel} from '../render/filters/Crown3D';
 import {
   DEFAULT_ACTIVE_FILTERS,
   submittedFilters,
@@ -219,7 +220,15 @@ export function CameraScreen(): React.JSX.Element {
         await submit(metrics, activeFilterIds());
         tracking.resetSession();
       }
-      setActiveFilters(prev => ({...prev, [id]: !prev[id]}));
+      setActiveFilters(prev => {
+        const next = {...prev, [id]: !prev[id]};
+        // Decode the crown now rather than when the session starts, so the
+        // first run of a launch measures the same work as every later one.
+        if (next.crown) {
+          prewarmCrownModel();
+        }
+        return next;
+      });
     },
     [isRunning, metrics, submit, activeFilterIds, tracking],
   );
@@ -294,30 +303,27 @@ export function CameraScreen(): React.JSX.Element {
         )}
 
         {/*
-          The filter layer mounts as soon as filters mode is chosen, NOT when
-          tracking starts.
+          Mounted only while running, deliberately.
 
-          Crown3D has to decode a 2.5 MB base64 string, parse a 1.9 MB glTF and
-          decode its textures before it can draw anything. Mounting it on Start
-          meant the first run of every launch was measured with no crown on
-          screen while later runs had one — the workload differed between runs
-          that were supposed to pool. Initialising during setup makes every
-          session measure the same steady state, which is the same reason the
-          F11 warm-up window exists.
-
-          It draws nothing until a face is detected (the tick guards on
-          faceCount), so mounting early costs no visible change.
+          Mounting the filter layer during setup (to warm the crown) crashed
+          both platforms: the Skia filters run worklets that read the tracking
+          runtime, and bringing them up before tracking.start() produced
+          "TypeError: undefined is not a function" inside
+          shopify_ContainerNative on a worklets thread. The crown is warmed
+          instead by prewarmCrownModel(), which does the expensive decode and
+          parse without creating any GPU surface.
         */}
-        {preview.width > 0 && appMode === 'filters' && (
-          <FilterLayer
-            activeFilters={activeFilters}
-            latest={latest}
-            geometry={geometry}
-            onFilterError={setFilterError}
-          />
-        )}
-        {isRunning && preview.width > 0 && appMode === 'landmarks' && (
-          <LandmarkOverlay latest={latest} geometry={geometry} mode={effectiveMode} />
+        {isRunning && preview.width > 0 && (
+          appMode === 'landmarks' ? (
+            <LandmarkOverlay latest={latest} geometry={geometry} mode={effectiveMode} />
+          ) : (
+            <FilterLayer
+              activeFilters={activeFilters}
+              latest={latest}
+              geometry={geometry}
+              onFilterError={setFilterError}
+            />
+          )
         )}
 
         <View style={styles.hudLayer} pointerEvents="none">

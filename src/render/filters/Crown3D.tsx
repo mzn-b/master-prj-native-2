@@ -47,6 +47,45 @@ const NOSE_TIP = 1;
 const FOREHEAD = 10;
 const CHIN = 152;
 
+/**
+ * Decoded crown bytes, cached for the life of the process.
+ *
+ * Decoding 2.5 MB of base64 is the slow, GPU-independent half of crown
+ * start-up, and it produced a visible defect: mounted on Start, the first run
+ * of every launch had no crown on screen while later runs did, so runs that
+ * were meant to pool carried different workloads.
+ *
+ * Caching here rather than mounting the filter layer early is deliberate —
+ * mounting it during setup brought the Skia filter worklets up before the
+ * tracking runtime existed and crashed both platforms.
+ */
+let crownBytes: ArrayBuffer | undefined;
+
+function decodeCrownModel(): ArrayBuffer {
+  if (crownBytes === undefined) {
+    const {CROWN_GLB_BASE64} = require('./crownGlb.generated') as {
+      CROWN_GLB_BASE64: string;
+    };
+    crownBytes = base64ToArrayBuffer(CROWN_GLB_BASE64);
+  }
+  return crownBytes;
+}
+
+/**
+ * Decodes the crown ahead of the session that will draw it.
+ *
+ * Safe to call at any time and from anywhere: it touches no GPU resource and
+ * no worklet, only CPU and memory. Calling it more than once is free.
+ */
+export function prewarmCrownModel(): void {
+  try {
+    decodeCrownModel();
+  } catch {
+    // A failure here is reported properly when the crown actually mounts;
+    // warming must never be able to break the app.
+  }
+}
+
 export interface Crown3DProps {
   latest: SharedValue<RawDetection | null>;
   geometry: ViewGeometry;
@@ -128,10 +167,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
         alphaMode: 'premultiplied',
       });
 
-      const {CROWN_GLB_BASE64} = require('./crownGlb.generated') as {
-        CROWN_GLB_BASE64: string;
-      };
-      const bytes = base64ToArrayBuffer(CROWN_GLB_BASE64);
+      const bytes = decodeCrownModel();
 
       const scene = new THREE.Scene();
       // Orthographic in view pixels: landmark projection already gives us
