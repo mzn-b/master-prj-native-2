@@ -10,7 +10,10 @@ const defaultConfig = getDefaultConfig(__dirname);
  */
 const config = {
   resolver: {
-    // crown.glb is bundled as an asset and parsed by three's GLTFLoader.
+    // Kept so a .glb can be require()d, but the crown no longer uses that
+    // path: on Android Release the resolved URI is a bare resource name that
+    // fetch cannot open, so the model is embedded instead
+    // (scripts/embed-assets.mjs).
     assetExts: [...defaultConfig.resolver.assetExts, 'glb'],
   },
 };
