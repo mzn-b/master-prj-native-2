@@ -21,6 +21,7 @@ import {LandmarkOverlay} from '../render/LandmarkOverlay';
 import type {Rotation, ViewGeometry} from '../render/coordinates';
 import {FilterLayer} from '../render/filters/FilterLayer';
 import {prewarmCrownModel} from '../render/filters/Crown3D';
+import {APP_VERSION} from '../config/buildInfo';
 import {
   DEFAULT_ACTIVE_FILTERS,
   submittedFilters,
@@ -352,6 +353,15 @@ export function CameraScreen(): React.JSX.Element {
             {error}
           </Text>
         ))}
+        {/*
+          The running build, matching the PWA.
+
+          SURVEY-PROCEDURE.md asks for the build stamp per session, and on
+          2026-10-08 a device was reporting behaviour from a build that was not
+          the one running. Reading it off the screen settles that in a second
+          instead of by inference.
+        */}
+        <Text style={styles.buildStamp}>{`Build ${APP_VERSION}`}</Text>
         {capabilities.warnings.map(warning => (
           <Text key={warning} style={styles.warning}>
             {warning}
@@ -423,4 +433,5 @@ const styles = StyleSheet.create({
   tabActive: {backgroundColor: '#4f46e5', fontWeight: '700'},
   error: {color: '#fca5a5'},
   warning: {color: '#fcd34d'},
+  buildStamp: {color: '#6b7280', fontSize: 11},
 });
