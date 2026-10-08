@@ -6,7 +6,7 @@ import {
   useCameraPermission,
   usePreviewOutput,
 } from 'react-native-vision-camera';
-import {Platform, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent} from 'react-native';
+import {Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, type LayoutChangeEvent} from 'react-native';
 import type {PerformanceMetricsDTO, TrackingDTO, TrackingMode} from '../domain/tracking.dto';
 import {submitTrackingSession} from '../api/trackingApi';
 import {getNativeMetrics} from '../metrics/nativeMetrics';
@@ -20,7 +20,13 @@ import {useTracking} from '../tracking/useTracking';
 import {LandmarkOverlay} from '../render/LandmarkOverlay';
 import type {Rotation, ViewGeometry} from '../render/coordinates';
 import {FilterLayer} from '../render/filters/FilterLayer';
-import {DEFAULT_ACTIVE_FILTERS, type ActiveFilters, type FilterId} from '../render/filters/types';
+import {
+  DEFAULT_ACTIVE_FILTERS,
+  submittedFilters,
+  type ActiveFilters,
+  type AppMode,
+  type FilterId,
+} from '../render/filters/types';
 import {DebugHud} from '../ui/DebugHud';
 import {FilterBar} from '../ui/FilterBar';
 import {ModeSelector} from '../ui/ModeSelector';
@@ -28,7 +34,6 @@ import {PerformanceHud} from '../ui/PerformanceHud';
 import {SessionControls} from '../ui/SessionControls';
 import {SettingsSheet} from '../ui/SettingsSheet';
 
-type AppMode = 'landmarks' | 'filters';
 
 /** MediaPipe returns landmarks in the frame's own orientation. */
 const FRAME_ROTATION: Rotation = Platform.OS === 'ios' ? 90 : 270;
@@ -58,6 +63,15 @@ export function CameraScreen(): React.JSX.Element {
     dynamicInferenceEnabled,
   });
   const {isRunning, latest, frameSize, metrics, currentFrameSkip, frameOutput} = tracking;
+
+  // A filter that fails to initialise draws nothing and says nothing. Shown in
+  // the warning area so a run is never recorded believing a filter was active.
+  const [filterError, setFilterError] = useState<string | null>(null);
+
+  const appModeRef = useRef(appMode);
+  useEffect(() => {
+    appModeRef.current = appMode;
+  }, [appMode]);
 
   const activeFiltersRef = useRef(activeFilters);
   useEffect(() => {
@@ -172,8 +186,11 @@ export function CameraScreen(): React.JSX.Element {
     [effectiveMode],
   );
 
+  // Reports what was DRAWN, not what was selected: landmarks mode never mounts
+  // FilterLayer, and the selection survives a mode switch. See
+  // submittedFilters() for the defect this closes.
   const activeFilterIds = useCallback(
-    () => (Object.keys(activeFiltersRef.current) as FilterId[]).filter(id => activeFiltersRef.current[id]),
+    () => submittedFilters(appModeRef.current, activeFiltersRef.current),
     [],
   );
 
@@ -219,6 +236,26 @@ export function CameraScreen(): React.JSX.Element {
     return () => clearInterval(id);
   }, [showDebug, isRunning, latest, effectiveMode]);
 
+  /**
+   * Switching surface clears the filter selection.
+   *
+   * The two are independent state and only `appMode` gates rendering, so a
+   * selection left behind in landmarks mode is invisible but still submitted.
+   * Clearing here keeps the state honest; submittedFilters() keeps the report
+   * honest even if it is not.
+   */
+  const handleAppMode = useCallback(
+    (next: AppMode) => {
+      if (isRunning) {
+        return;
+      }
+      setAppMode(next);
+      setActiveFilters(DEFAULT_ACTIVE_FILTERS);
+      setFilterError(null);
+    },
+    [isRunning],
+  );
+
   const handleSetting = useCallback(
     (key: string, value: boolean) => {
       const setters: Record<string, (next: boolean) => void> = {
@@ -260,7 +297,12 @@ export function CameraScreen(): React.JSX.Element {
           appMode === 'landmarks' ? (
             <LandmarkOverlay latest={latest} geometry={geometry} mode={effectiveMode} />
           ) : (
-            <FilterLayer activeFilters={activeFilters} latest={latest} geometry={geometry} />
+            <FilterLayer
+              activeFilters={activeFilters}
+              latest={latest}
+              geometry={geometry}
+              onFilterError={setFilterError}
+            />
           )
         )}
 
@@ -295,15 +337,31 @@ export function CameraScreen(): React.JSX.Element {
             {warning}
           </Text>
         ))}
+        {filterError !== null && (
+          <Text style={styles.warning}>{`Filter-Fehler: ${filterError}`}</Text>
+        )}
 
         <View style={styles.row}>
+          {/*
+            TouchableOpacity rather than <Text onPress>. The bare Text produced
+            no touch target on Android — it never appeared as a Button in the
+            view hierarchy, and tapping it did nothing, while every other
+            control in this app (all TouchableOpacity) responded normally.
+            Reproduced on a Pixel 7 on 2026-10-08: landmarks -> filters worked,
+            filters -> landmarks was dead across tap, long press and every
+            position in the element.
+          */}
           {(['landmarks', 'filters'] as AppMode[]).map(candidate => (
-            <Text
+            <TouchableOpacity
               key={candidate}
-              onPress={() => !isRunning && setAppMode(candidate)}
+              accessibilityRole="button"
+              disabled={isRunning}
+              onPress={() => handleAppMode(candidate)}
               style={[styles.tab, appMode === candidate && styles.tabActive]}>
-              {candidate === 'landmarks' ? 'Landmarks' : 'Filters'}
-            </Text>
+              <Text style={styles.tabLabel}>
+                {candidate === 'landmarks' ? 'Landmarks' : 'Filters'}
+              </Text>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -334,8 +392,8 @@ const styles = StyleSheet.create({
   panel: {maxHeight: 300, backgroundColor: '#111827'},
   panelContent: {padding: 12, gap: 10},
   row: {flexDirection: 'row', gap: 6},
+  tabLabel: {color: '#fff'},
   tab: {
-    color: '#fff',
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 6,

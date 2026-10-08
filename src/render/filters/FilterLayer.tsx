@@ -13,6 +13,8 @@ export interface FilterLayerProps {
   activeFilters: ActiveFilters;
   latest: SharedValue<RawDetection | null>;
   geometry: ViewGeometry;
+  /** Surfaces a filter that failed to initialise; see Crown3D. */
+  onFilterError?: (message: string) => void;
 }
 
 /**
@@ -26,6 +28,7 @@ export function FilterLayer({
   activeFilters,
   latest,
   geometry,
+  onFilterError,
 }: FilterLayerProps): React.JSX.Element {
   const needsSkia = activeFilters.glasses || activeFilters.sparkles;
 
@@ -33,7 +36,7 @@ export function FilterLayer({
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
       {activeFilters.crown && (
         <View style={StyleSheet.absoluteFill} testID="filter-crown">
-          <Crown3D latest={latest} geometry={geometry} />
+          <Crown3D latest={latest} geometry={geometry} onError={onFilterError} />
         </View>
       )}
       {needsSkia && (

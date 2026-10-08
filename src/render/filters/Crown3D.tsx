@@ -37,6 +37,15 @@ const CHIN = 152;
 export interface Crown3DProps {
   latest: SharedValue<RawDetection | null>;
   geometry: ViewGeometry;
+  /**
+   * Reports an initialisation failure to the UI.
+   *
+   * A crown that fails to initialise renders nothing and produces no other
+   * symptom — and in a Release build `console.warn` does not reach logcat, so
+   * the failure is invisible on a device. A session can therefore be recorded
+   * with the crown "active" while nothing was ever drawn.
+   */
+  onError?: (message: string) => void;
 }
 
 /**
@@ -54,7 +63,13 @@ export interface Crown3DProps {
  * Lighting and tone mapping are copied from the PWA's CrownFilter so the same
  * model looks the same on both platforms (NF4).
  */
-export function Crown3D({latest, geometry}: Crown3DProps): React.JSX.Element {
+export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.Element {
+  // Held in a ref so a changing callback identity cannot restart WebGPU setup.
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
   const {ref, surface} = useSurface();
   const {device} = useDevice();
   const startedRef = useRef(false);
@@ -77,8 +92,12 @@ export function Crown3D({latest, geometry}: Crown3DProps): React.JSX.Element {
         startedRef.current = true;
         init(width, height).catch(error => {
           // Never swallow this silently: a failure here means the filter shows
-          // nothing at all, with no other symptom.
+          // nothing at all, with no other symptom. console.warn alone is not
+          // enough — it does not reach logcat in a Release build, which is how
+          // this went unnoticed on Android.
+          const message = error instanceof Error ? error.message : String(error);
           console.warn('[Crown3D] initialisation failed:', error);
+          onErrorRef.current?.(message);
         });
         return;
       }
