@@ -293,17 +293,31 @@ export function CameraScreen(): React.JSX.Element {
           </View>
         )}
 
-        {isRunning && preview.width > 0 && (
-          appMode === 'landmarks' ? (
-            <LandmarkOverlay latest={latest} geometry={geometry} mode={effectiveMode} />
-          ) : (
-            <FilterLayer
-              activeFilters={activeFilters}
-              latest={latest}
-              geometry={geometry}
-              onFilterError={setFilterError}
-            />
-          )
+        {/*
+          The filter layer mounts as soon as filters mode is chosen, NOT when
+          tracking starts.
+
+          Crown3D has to decode a 2.5 MB base64 string, parse a 1.9 MB glTF and
+          decode its textures before it can draw anything. Mounting it on Start
+          meant the first run of every launch was measured with no crown on
+          screen while later runs had one — the workload differed between runs
+          that were supposed to pool. Initialising during setup makes every
+          session measure the same steady state, which is the same reason the
+          F11 warm-up window exists.
+
+          It draws nothing until a face is detected (the tick guards on
+          faceCount), so mounting early costs no visible change.
+        */}
+        {preview.width > 0 && appMode === 'filters' && (
+          <FilterLayer
+            activeFilters={activeFilters}
+            latest={latest}
+            geometry={geometry}
+            onFilterError={setFilterError}
+          />
+        )}
+        {isRunning && preview.width > 0 && appMode === 'landmarks' && (
+          <LandmarkOverlay latest={latest} geometry={geometry} mode={effectiveMode} />
         )}
 
         <View style={styles.hudLayer} pointerEvents="none">
