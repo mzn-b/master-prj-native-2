@@ -57,8 +57,8 @@ describe('PerformanceTracker', () => {
     const t = new PerformanceTracker();
     t.start();
     runFrames(t, 5, 33);
-    t.recordDroppedFrame();
-    t.recordDroppedFrame();
+    t.recordDroppedFrame('governor');
+    t.recordDroppedFrame('busy');
     const m = t.getMetrics();
     expect(m.frameCount).toBe(5);
     expect(m.droppedFrames).toBe(2);
@@ -80,23 +80,10 @@ describe('PerformanceTracker', () => {
     expect(t.getMetrics().avgInferenceTimeMs).toBeCloseTo(12, 1);
   });
 
-  it('counts a tracking loss when tracking goes valid to invalid (NF7)', () => {
-    const t = new PerformanceTracker();
-    t.start();
-    runFrames(t, 3, 33, true);
-    runFrames(t, 3, 33, false);
-    expect(t.getMetrics().trackingLostCount).toBe(1);
-  });
-
-  it('records the longest consecutive loss streak', () => {
-    const t = new PerformanceTracker();
-    t.start();
-    runFrames(t, 1, 33, true);
-    runFrames(t, 5, 33, false);
-    runFrames(t, 1, 33, true);
-    runFrames(t, 2, 33, false);
-    expect(t.getMetrics().consecutiveTrackingLossMax!).toBeGreaterThanOrEqual(4);
-  });
+  // NF7 is asserted against the batch path, because that is the one the app
+  // runs. These used to drive recordFrameEnd, which the camera pipeline never
+  // calls — they passed while the production path counted something else
+  // entirely. See the note on recordFrameEnd.
 
   it('averages detections per frame', () => {
     const t = new PerformanceTracker();
@@ -229,12 +216,31 @@ describe('PerformanceTracker.recordBatch', () => {
     expect(m.minFps).toBeCloseTo(10, 0); // 1000/100
   });
 
-  it('counts a tracking loss when a whole batch saw nothing', () => {
+  it('takes tracking losses from the worklet, not from an empty batch', () => {
+    // NF7 is counted per frame in the worklet now. A batch that happens to
+    // contain no detections is NOT by itself one loss event: at a 500 ms drain
+    // that would need a ~25x longer blackout than the PWA needs to register the
+    // same event, and the two columns would not be comparable.
     const t = new PerformanceTracker();
     t.start();
     t.recordBatch(batch());
     t.recordBatch(batch({trackedFrames: 0, facesSum: 0, handsSum: 0}));
-    expect(t.getMetrics().trackingLostCount).toBe(1);
+    expect(t.getMetrics().trackingLostCount).toBe(0);
+
+    t.recordBatch(batch({lostEvents: 3, consecutiveLossMax: 2}));
+    const m = t.getMetrics();
+    expect(m.trackingLostCount).toBe(3);
+    expect(m.consecutiveTrackingLossMax).toBe(2);
+  });
+
+  it('averages recovery time over the recoveries the worklet counted', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch({recoverySumMs: 120, recoveryCount: 2}));
+    t.recordBatch(batch({recoverySumMs: 60, recoveryCount: 1}));
+    // (120 + 60) / 3 — previously always undefined on native, because the code
+    // that computed it lived in recordFrameEnd, which the app never calls.
+    expect(t.getMetrics().trackingRecoveryTimeMs).toBe(60);
   });
 
   it('averages detections per frame', () => {
@@ -244,5 +250,209 @@ describe('PerformanceTracker.recordBatch', () => {
     const m = t.getMetrics();
     expect(m.facesDetectedAvg).toBeCloseTo(1, 5);
     expect(m.handsDetectedAvg).toBeCloseTo(0.5, 5);
+  });
+});
+
+/**
+ * The metrics added on 2026-09-15. Rationale, and the reasoning behind the
+ * deliberately one-sided ones, is in METRICS.md.
+ */
+describe('PerformanceTracker percentiles from batched frames', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(0);
+  });
+  afterEach(() => jest.useRealTimers());
+
+  function batch(
+    inferenceSamples: number[],
+    intervalSamples: number[] = inferenceSamples,
+    extra: Record<string, number> = {},
+  ) {
+    const frames = inferenceSamples.length;
+    const sum = inferenceSamples.reduce((a, b) => a + b, 0);
+    const intervalSum = intervalSamples.reduce((a, b) => a + b, 0);
+    return {
+      frames,
+      intervalSumMs: intervalSum,
+      minIntervalMs: Math.min(...intervalSamples),
+      maxIntervalMs: Math.max(...intervalSamples),
+      inferenceSumMs: sum,
+      processingSumMs: sum,
+      facesSum: frames,
+      handsSum: 0,
+      trackedFrames: frames,
+      inferenceSamples,
+      intervalSamples,
+      ...extra,
+    };
+  }
+
+  it('uses the individual samples, not the batch mean', () => {
+    // The whole point of carrying samples through the worklet: a batch mean
+    // would flatten the 200 ms frame that the p95 exists to expose.
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch([10, 10, 10, 10, 10, 10, 10, 10, 10, 200]));
+    const m = t.getMetrics();
+    expect(m.inferenceTimeP95Ms).toBeCloseTo(200, 1);
+    expect(m.inferenceTimeP50Ms).toBeCloseTo(10, 1);
+  });
+
+  it('accumulates across batches rather than resetting per drain', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    for (let i = 0; i < 20; i++) t.recordBatch(batch([10, 10, 10, 10, 10]));
+    t.recordBatch(batch([500, 500]));
+    expect(t.getMetrics().inferenceTimeP99Ms!).toBeGreaterThan(400);
+  });
+
+  it('omits percentiles rather than reporting zero before any frame', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    const m = t.getMetrics();
+    expect(m.inferenceTimeP50Ms).toBeUndefined();
+    expect(m.frameIntervalP95Ms).toBeUndefined();
+  });
+});
+
+describe('PerformanceTracker detection quality from the worklet', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(0);
+  });
+  afterEach(() => jest.useRealTimers());
+
+  function qualityBatch(extra: Record<string, number>) {
+    return {
+      frames: 2,
+      intervalSumMs: 20,
+      minIntervalMs: 10,
+      maxIntervalMs: 10,
+      inferenceSumMs: 20,
+      processingSumMs: 20,
+      facesSum: 2,
+      handsSum: 2,
+      trackedFrames: 2,
+      ...extra,
+    };
+  }
+
+  it('averages over the counts the worklet carried, not over frames', () => {
+    // Sum and count travel together because a frame with no hand must not
+    // dilute the confidence average with an implicit zero.
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(qualityBatch({gestureConfidenceSum: 1.6, gestureConfidenceCount: 2}));
+    t.recordBatch(qualityBatch({gestureConfidenceSum: 0.9, gestureConfidenceCount: 1}));
+    expect(t.getMetrics().avgGestureConfidence).toBeCloseTo(0.8333, 3);
+  });
+
+  it('reports blendshape activation and landmark jitter', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(
+      qualityBatch({
+        blendshapeActivationSum: 1.2,
+        blendshapeActivationCount: 2,
+        landmarkDeltaSum: 0.08,
+        landmarkDeltaCount: 2,
+      }),
+    );
+    const m = t.getMetrics();
+    expect(m.avgBlendshapeActivation).toBeCloseTo(0.6, 3);
+    expect(m.landmarkStability).toBeCloseTo(0.04, 3);
+  });
+
+  it('reports nothing rather than zero when no quality was observed', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(qualityBatch({}));
+    const m = t.getMetrics();
+    expect(m.avgGestureConfidence).toBeUndefined();
+    expect(m.avgBlendshapeActivation).toBeUndefined();
+    expect(m.landmarkStability).toBeUndefined();
+  });
+});
+
+describe('PerformanceTracker one-sided metrics', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(0);
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it('never submits a render time', () => {
+    // Deliberate, and pinned so it cannot be "fixed" by accident: this app
+    // renders declaratively through Skia with no point equivalent to the PWA's
+    // draw call, so any number here would invite a comparison the measurement
+    // cannot support. See METRICS.md §5.
+    const t = new PerformanceTracker();
+    t.start();
+    runFrames(t, 30, 16);
+    const m = t.getMetrics();
+    expect(m.avgRenderTimeMs).toBeUndefined();
+    expect(m.renderTimeP95Ms).toBeUndefined();
+  });
+
+  it('submits a startup figure taken at session start', () => {
+    // A property of the launch, so it is the same for every session in the
+    // process — as the PWA's navigation timing also is.
+    const t = new PerformanceTracker();
+    t.start();
+    const first = t.getMetrics().appStartupMs;
+    t.reset();
+    expect(t.getMetrics().appStartupMs).toBe(first);
+  });
+});
+
+
+describe('PerformanceTracker F15 governor accounting', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(0);
+  });
+  afterEach(() => jest.useRealTimers());
+
+  it('splits dropped frames by cause while keeping the total', () => {
+    // The two causes mean opposite things: the governor skipping is the system
+    // working as designed, the runner refusing is the device overwhelmed. A
+    // single total cannot distinguish them. See METRICS.md.
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordDroppedFrame('governor', 40);
+    t.recordDroppedFrame('busy', 3);
+    const m = t.getMetrics();
+    expect(m.droppedFrames).toBe(43);
+    expect(m.droppedFramesGovernor).toBe(40);
+    expect(m.droppedFramesBusy).toBe(3);
+  });
+
+  it('reports the mean and peak divider the governor reached', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordFrameSkipBatch(10, 10, 1); // ten frames at skip 1
+    t.recordFrameSkipBatch(30, 10, 5); // ten frames averaging 3, peaking at 5
+    const m = t.getMetrics();
+    expect(m.avgFrameSkip).toBeCloseTo(2, 2);
+    expect(m.maxFrameSkip).toBe(5);
+  });
+
+  it('ignores an empty drain rather than dividing by zero', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordFrameSkipBatch(0, 0, 0);
+    const m = t.getMetrics();
+    expect(m.avgFrameSkip).toBeUndefined();
+    expect(m.maxFrameSkip).toBeUndefined();
+  });
+
+  it('keeps the peak across a reset boundary only within a session', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordFrameSkipBatch(50, 10, 8);
+    expect(t.getMetrics().maxFrameSkip).toBe(8);
+    t.reset();
+    expect(t.getMetrics().maxFrameSkip).toBeUndefined();
   });
 });

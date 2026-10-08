@@ -23,6 +23,15 @@ export interface NativeMetricsSnapshot {
   batteryCharging?: boolean;
   gpuVendor?: string;
   gpuRenderer?: string;
+  /**
+   * Marketing-ish device model — "Pixel 7", "iPhone14,6".
+   *
+   * The app used to submit the literal string "Android device" / "iOS device",
+   * which made every native row unattributable to a handset. In a study that
+   * compares platforms across devices, that is the one identifier the dataset
+   * cannot do without.
+   */
+  deviceModel?: string;
 }
 
 export interface NativeMetrics extends HybridObject<{ios: 'swift'; android: 'kotlin'}> {

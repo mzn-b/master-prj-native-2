@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import MediaPipeTasksVision
 import NitroModules
+import UIKit
 import VisionCamera
 
 /// MediaPipe face + hand detection for one camera frame.
@@ -79,6 +80,12 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     }
     lastTimestampMs = timestampMs
 
+    // NF4 — inferenceTimeMs is measured end-to-end: frame in hand -> landmarks
+    // ready, including MPImage construction and the packing loop below. Timing
+    // only the MediaPipe call would exclude work the platform genuinely does and
+    // make it look faster than it is. The PWA brackets the equivalent span.
+    let started = CFAbsoluteTimeGetCurrent()
+
     guard let nativeFrame = frame as? any NativeFrame else {
       return Self.empty(timestampMs: timestampMs)
     }
@@ -87,16 +94,30 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     }
     let image: MPImage
     do {
-      image = try MPImage(sampleBuffer: sampleBuffer)
+      // The buffer arrives in sensor orientation — landscape while the phone is
+      // held upright — so without this MediaPipe is handed a sideways face and
+      // told it is upright. It copes while the face is large and close, then
+      // degrades badly as the face shrinks: the pose estimate tips, and the user
+      // reads it as "leaning" or "looking upwards".
+      //
+      // Android has always passed its rotation via ImageProcessingOptions, so
+      // the two platforms were feeding MediaPipe materially different images.
+      // That is an NF4 problem as much as a correctness one: Android was paying
+      // for a rotation iOS never did, and iOS was paying in accuracy instead.
+      //
+      // VisionCamera's own `uiImageOrientation` helper is internal to its
+      // module, but the Frame exposes the two values it derives from.
+      image = try MPImage(
+        sampleBuffer: sampleBuffer,
+        orientation: Self.uiOrientation(frame.orientation, isMirrored: frame.isMirrored),
+      )
     } catch {
       return Self.empty(timestampMs: timestampMs)
     }
 
-    let started = CFAbsoluteTimeGetCurrent()
     let ts = Int(timestampMs)
     let faceResult = wantFace ? try? engine.faceLandmarker?.detect(videoFrame: image, timestampInMilliseconds: ts) : nil
     let handResult = wantHand ? try? engine.gestureRecognizer?.recognize(videoFrame: image, timestampInMilliseconds: ts) : nil
-    let inferenceMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
 
     let faces = faceResult?.faceLandmarks ?? []
     let hands = handResult?.landmarks ?? []
@@ -146,6 +167,8 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
       )
     }
 
+    let inferenceMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
+
     return RawDetection(
       timestampMs: timestampMs,
       faceCount: Double(faces.count),
@@ -156,6 +179,26 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
       hands: handMeta,
       inferenceTimeMs: inferenceMs
     )
+  }
+
+  /**
+   * Map the frame's orientation onto the one MediaPipe wants.
+   *
+   * `orientation` says how the pixel data is rotated relative to upright, and
+   * `isMirrored` is set for the front camera. MediaPipe rotates the image into
+   * upright before inference, and reports landmarks in that upright space.
+   */
+  private static func uiOrientation(
+    _ orientation: CameraOrientation,
+    isMirrored: Bool
+  ) -> UIImage.Orientation {
+    switch orientation {
+    case .up: return isMirrored ? .upMirrored : .up
+    case .right: return isMirrored ? .rightMirrored : .right
+    case .down: return isMirrored ? .downMirrored : .down
+    case .left: return isMirrored ? .leftMirrored : .left
+    @unknown default: return isMirrored ? .upMirrored : .up
+    }
   }
 
   private static func empty(timestampMs: Double) -> RawDetection {

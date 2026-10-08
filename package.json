@@ -8,7 +8,11 @@
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest",
-    "nitrogen": "cd modules/tracking-native && nitrogen"
+    "nitrogen": "cd modules/tracking-native && nitrogen",
+    "stamp": "node scripts/stamp-build.mjs",
+    "prestart": "node scripts/stamp-build.mjs",
+    "preandroid": "node scripts/stamp-build.mjs",
+    "preios": "node scripts/stamp-build.mjs"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.87.1",

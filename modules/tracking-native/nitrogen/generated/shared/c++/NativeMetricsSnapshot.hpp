@@ -51,10 +51,11 @@ namespace margelo::nitro::trackingnative {
     std::optional<bool> batteryCharging     SWIFT_PRIVATE;
     std::optional<std::string> gpuVendor     SWIFT_PRIVATE;
     std::optional<std::string> gpuRenderer     SWIFT_PRIVATE;
+    std::optional<std::string> deviceModel     SWIFT_PRIVATE;
 
   public:
     NativeMetricsSnapshot() = default;
-    explicit NativeMetricsSnapshot(std::optional<double> cpuUsagePercent, std::optional<double> memoryUsedMB, std::optional<double> totalMemoryMB, std::optional<double> availableMemoryMB, std::optional<double> cpuCores, std::optional<double> threadCount, std::optional<std::string> thermalState, std::optional<double> batteryLevel, std::optional<bool> batteryCharging, std::optional<std::string> gpuVendor, std::optional<std::string> gpuRenderer): cpuUsagePercent(cpuUsagePercent), memoryUsedMB(memoryUsedMB), totalMemoryMB(totalMemoryMB), availableMemoryMB(availableMemoryMB), cpuCores(cpuCores), threadCount(threadCount), thermalState(thermalState), batteryLevel(batteryLevel), batteryCharging(batteryCharging), gpuVendor(gpuVendor), gpuRenderer(gpuRenderer) {}
+    explicit NativeMetricsSnapshot(std::optional<double> cpuUsagePercent, std::optional<double> memoryUsedMB, std::optional<double> totalMemoryMB, std::optional<double> availableMemoryMB, std::optional<double> cpuCores, std::optional<double> threadCount, std::optional<std::string> thermalState, std::optional<double> batteryLevel, std::optional<bool> batteryCharging, std::optional<std::string> gpuVendor, std::optional<std::string> gpuRenderer, std::optional<std::string> deviceModel): cpuUsagePercent(cpuUsagePercent), memoryUsedMB(memoryUsedMB), totalMemoryMB(totalMemoryMB), availableMemoryMB(availableMemoryMB), cpuCores(cpuCores), threadCount(threadCount), thermalState(thermalState), batteryLevel(batteryLevel), batteryCharging(batteryCharging), gpuVendor(gpuVendor), gpuRenderer(gpuRenderer), deviceModel(deviceModel) {}
 
   public:
     friend bool operator==(const NativeMetricsSnapshot& lhs, const NativeMetricsSnapshot& rhs) = default;
@@ -80,7 +81,8 @@ namespace margelo::nitro {
         JSIConverter<std::optional<double>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "batteryLevel"))),
         JSIConverter<std::optional<bool>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "batteryCharging"))),
         JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "gpuVendor"))),
-        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "gpuRenderer")))
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "gpuRenderer"))),
+        JSIConverter<std::optional<std::string>>::fromJSI(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "deviceModel")))
       );
     }
     static inline jsi::Value toJSI(jsi::Runtime& runtime, const margelo::nitro::trackingnative::NativeMetricsSnapshot& arg) {
@@ -96,6 +98,7 @@ namespace margelo::nitro {
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "batteryCharging"), JSIConverter<std::optional<bool>>::toJSI(runtime, arg.batteryCharging));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "gpuVendor"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.gpuVendor));
       obj.setProperty(runtime, PropNameIDCache::get(runtime, "gpuRenderer"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.gpuRenderer));
+      obj.setProperty(runtime, PropNameIDCache::get(runtime, "deviceModel"), JSIConverter<std::optional<std::string>>::toJSI(runtime, arg.deviceModel));
       return obj;
     }
     static inline bool canConvert(jsi::Runtime& runtime, const jsi::Value& value) {
@@ -117,6 +120,7 @@ namespace margelo::nitro {
       if (!JSIConverter<std::optional<bool>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "batteryCharging")))) return false;
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "gpuVendor")))) return false;
       if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "gpuRenderer")))) return false;
+      if (!JSIConverter<std::optional<std::string>>::canConvert(runtime, obj.getProperty(runtime, PropNameIDCache::get(runtime, "deviceModel")))) return false;
       return true;
     }
   };

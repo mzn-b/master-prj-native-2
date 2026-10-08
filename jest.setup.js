@@ -43,11 +43,25 @@ jest.mock('react-native-reanimated', () => ({
 /** VisionCamera resolves native modules at import time. */
 jest.mock('react-native-vision-camera', () => ({
   Camera: () => null,
+  NativePreviewView: () => null,
   // jest.fn() so individual tests can override the return value.
   useCameraDevice: jest.fn(() => ({id: 'front', position: 'front'})),
   useCameraPermission: jest.fn(() => ({hasPermission: true, requestPermission: jest.fn()})),
   useFrameOutput: jest.fn(() => ({})),
   useAsyncRunner: jest.fn(() => ({runAsync: () => true})),
+  useCamera: jest.fn(() => undefined),
+  // The preview stream is a separate output whose resolution the overlay needs;
+  // undefined here mirrors a session that has not negotiated one yet, which is
+  // the case the geometry must degrade gracefully for.
+  usePreviewOutput: jest.fn(() => ({currentResolution: undefined})),
+  // Plain data in the real package, but the mock replaces the whole module,
+  // so it has to be restated here. Kept in sync by a test in
+  // src/tracking/__tests__/captureResolution.test.ts.
+  CommonResolutions: {
+    VGA_16_9: {width: 480, height: 854},
+    HD_16_9: {width: 720, height: 1280},
+    FHD_16_9: {width: 1080, height: 1920},
+  },
 }));
 
 /** Nitro's native module is unavailable under jest; box() is identity here. */

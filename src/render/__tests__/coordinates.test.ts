@@ -1,4 +1,4 @@
-import {projectPoint, type ViewGeometry} from '../coordinates';
+import {projectNormalized, projectPoint, type ViewGeometry} from '../coordinates';
 
 const base: ViewGeometry = {
   frameWidth: 100,
@@ -67,5 +67,105 @@ describe('projectPoint', () => {
     for (const rotation of [0, 90, 180, 270] as const) {
       expect(projectPoint({x: 0.5, y: 0.5}, {...base, rotation})).toEqual({x: 100, y: 100});
     }
+  });
+});
+
+// The analysis stream and the preview stream are separate camera outputs whose
+// aspect ratios routinely differ (VisionCamera negotiates the preview "ignoring
+// aspect ratio"). Landmarks are normalized to the analysis frame, so they have
+// to be re-normalized into the preview's field of view or every overlay renders
+// uniformly too large — the Android scaling bug.
+describe('preview field of view', () => {
+  const previewBase = {
+    viewWidth: 411,
+    viewHeight: 614,
+    rotation: 270 as const,
+    mirrorX: true,
+    resizeMode: 'cover' as const,
+  };
+
+  it('is a no-op when no preview size is known', () => {
+    const withPreview = {...previewBase, frameWidth: 1280, frameHeight: 720};
+    const centre = projectNormalized(0.5, 0.5, withPreview);
+    expect(centre.x).toBeCloseTo(previewBase.viewWidth / 2, 6);
+    expect(centre.y).toBeCloseTo(previewBase.viewHeight / 2, 6);
+  });
+
+  it('is a no-op when both streams share an aspect ratio', () => {
+    const same = {
+      ...previewBase,
+      frameWidth: 1280,
+      frameHeight: 720,
+      previewWidth: 1920,
+      previewHeight: 1080,
+    };
+    const only = {...previewBase, frameWidth: 1280, frameHeight: 720};
+    for (const [x, y] of [[0.2, 0.3], [0.5, 0.5], [0.9, 0.1]]) {
+      const a = projectNormalized(x, y, same);
+      const b = projectNormalized(x, y, only);
+      expect(a.x).toBeCloseTo(b.x, 6);
+      expect(a.y).toBeCloseTo(b.y, 6);
+    }
+  });
+
+  it('keeps the centre fixed regardless of the mismatch', () => {
+    const g = {
+      ...previewBase,
+      frameWidth: 1280,
+      frameHeight: 720,
+      previewWidth: 1440,
+      previewHeight: 1080,
+    };
+    const centre = projectNormalized(0.5, 0.5, g);
+    expect(centre.x).toBeCloseTo(previewBase.viewWidth / 2, 6);
+    expect(centre.y).toBeCloseTo(previewBase.viewHeight / 2, 6);
+  });
+
+  it('shrinks a wider frame onto a 4:3 preview, the Android case', () => {
+    // 16:9 analysis (1.778) inside a 4:3 preview (1.333): the frame is the wider
+    // one, so it is a vertical centre-crop and only y is rescaled.
+    const g = {
+      ...previewBase,
+      frameWidth: 1280,
+      frameHeight: 720,
+      previewWidth: 1440,
+      previewHeight: 1080,
+    };
+    const plain = {...previewBase, frameWidth: 1280, frameHeight: 720};
+
+    // A point away from the centre must land closer to the centre than the
+    // uncorrected projection put it — that is the oversize being removed.
+    const corrected = projectNormalized(0.5, 0.9, g);
+    const uncorrected = projectNormalized(0.5, 0.9, plain);
+    const centre = previewBase.viewWidth / 2;
+    expect(Math.abs(corrected.x - centre)).toBeLessThan(
+      Math.abs(uncorrected.x - centre),
+    );
+  });
+
+  it('rescales only the axis the streams disagree on', () => {
+    // 4:3 frame (1.333) inside a 16:9 preview (1.778): the frame is narrower,
+    // so it is a horizontal crop and y passes through untouched.
+    const g = {
+      ...previewBase,
+      rotation: 0 as const,
+      mirrorX: false,
+      frameWidth: 1440,
+      frameHeight: 1080,
+      previewWidth: 1280,
+      previewHeight: 720,
+    };
+    const plain = {
+      ...previewBase,
+      rotation: 0 as const,
+      mirrorX: false,
+      frameWidth: 1280,
+      frameHeight: 720,
+    };
+    // y is the shared axis here, so it must match the plain projection exactly.
+    expect(projectNormalized(0.5, 0.8, g).y).toBeCloseTo(
+      projectNormalized(0.5, 0.8, plain).y,
+      6,
+    );
   });
 });

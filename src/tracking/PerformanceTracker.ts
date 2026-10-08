@@ -1,5 +1,6 @@
 import type {PerformanceMetricsDTO} from '../domain/tracking.dto';
 import type {NativeMetricsSnapshot} from '../metrics/nativeMetrics';
+import {getAppStartupMs} from '../config/startup';
 
 /**
  * Collects the measurements the thesis reports.
@@ -22,6 +23,40 @@ export const WARMUP_FRAMES = 30;
 const BUFFER_SIZE = 60;
 
 /** O(1) circular buffer — avoids the O(n) array.shift() of a naive window. */
+/**
+ * Every sample of one session, for percentiles.
+ *
+ * The CircularBuffer below is a 60-sample rolling window — right for the live
+ * HUD, wrong for a session summary. Mirrors the PWA's SampleSeries exactly,
+ * including nearest-rank percentiles, so the two report the same statistic.
+ */
+class SampleSeries {
+  private samples: number[] = [];
+
+  push(value: number): void {
+    this.samples.push(value);
+  }
+
+  reset(): void {
+    this.samples = [];
+  }
+
+  get mean(): number | undefined {
+    if (this.samples.length === 0) return undefined;
+    let total = 0;
+    for (const v of this.samples) total += v;
+    return total / this.samples.length;
+  }
+
+  /** Nearest-rank, so a reported p95 is a value that actually occurred. */
+  percentile(p: number): number | undefined {
+    if (this.samples.length === 0) return undefined;
+    const sorted = [...this.samples].sort((a, b) => a - b);
+    const rank = Math.ceil(p * sorted.length);
+    return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1];
+  }
+}
+
 class CircularBuffer {
   private buffer: Float64Array;
   private index = 0;
@@ -71,6 +106,24 @@ export class PerformanceTracker {
   private warmupComplete = false;
   private lastTrackingValid = false;
 
+  // Session-wide series, for the percentiles submitted with the session.
+  private inferenceSeries = new SampleSeries();
+  private frameIntervalSeries = new SampleSeries();
+  // Detection quality, accumulated from the worklet's drains.
+  private gestureConfidenceSum = 0;
+  private gestureConfidenceCount = 0;
+  private blendshapeActivationSum = 0;
+  private blendshapeActivationCount = 0;
+  // F15 governor behaviour, drained from the worklet's shared counters.
+  private frameSkipSum = 0;
+  private frameSkipCount = 0;
+  private frameSkipMax = 0;
+  private droppedFramesGovernor = 0;
+  private droppedFramesBusy = 0;
+  private landmarkDeltaSum = 0;
+  private landmarkDeltaCount = 0;
+  private appStartupMs?: number;
+
   private frameTimes = new CircularBuffer(BUFFER_SIZE);
   private inferenceTimes = new CircularBuffer(BUFFER_SIZE);
   private processingTimes = new CircularBuffer(BUFFER_SIZE);
@@ -96,6 +149,18 @@ export class PerformanceTracker {
   private modelLoadTimeMs: number | undefined;
   private gpuDelegateActive: boolean | undefined;
 
+  /** NF3 — wall clock of the first frame that produced a detection. */
+  private firstDetectionAtMs: number | undefined;
+  /** Run conditions, set once per session by the caller. */
+  private runConditions: {
+    frameWidth?: number;
+    frameHeight?: number;
+    renderBackend?: string;
+    inferenceThreading?: string;
+    smoothingEnabled?: boolean;
+    dynamicInferenceEnabled?: boolean;
+  } = {};
+
   private clearCounters(): void {
     this.startTime = Date.now();
     this.lastFrameTime = this.startTime;
@@ -116,15 +181,33 @@ export class PerformanceTracker {
     this.memoryUsageStartMB = undefined;
     this.batteryLevelStart = undefined;
     this.errorCount = 0;
+    this.inferenceSeries.reset();
+    this.frameIntervalSeries.reset();
+    this.gestureConfidenceSum = 0;
+    this.gestureConfidenceCount = 0;
+    this.blendshapeActivationSum = 0;
+    this.blendshapeActivationCount = 0;
+    this.frameSkipSum = 0;
+    this.frameSkipCount = 0;
+    this.frameSkipMax = 0;
+    this.droppedFramesGovernor = 0;
+    this.droppedFramesBusy = 0;
+    this.landmarkDeltaSum = 0;
+    this.landmarkDeltaCount = 0;
     this.trackingLostTime = 0;
     this.totalRecoveryTimeMs = 0;
     this.recoveryCount = 0;
     this.currentConsecutiveLoss = 0;
     this.consecutiveTrackingLossMax = 0;
+    this.firstDetectionAtMs = undefined;
   }
 
   start(): void {
     this.clearCounters();
+    // NF3. Read rather than accumulated: it is a property of the launch, so it
+    // is the same value for every session in this process — which is also true
+    // of the PWA's navigation timing.
+    this.appStartupMs = getAppStartupMs();
   }
 
   /**
@@ -146,12 +229,52 @@ export class PerformanceTracker {
     this.gpuDelegateActive = active;
   }
 
+  /**
+   * NF4 — the conditions this session ran under. Without them two rows that
+   * differ only in capture resolution are indistinguishable in the dataset.
+   */
+  setRunConditions(conditions: {
+    frameWidth?: number;
+    frameHeight?: number;
+    renderBackend?: string;
+    inferenceThreading?: string;
+    smoothingEnabled?: boolean;
+    dynamicInferenceEnabled?: boolean;
+  }): void {
+    this.runConditions = {...this.runConditions, ...conditions};
+  }
+
   recordError(): void {
     this.errorCount++;
   }
 
-  recordDroppedFrame(): void {
-    this.droppedFrames++;
+  /**
+   * A camera frame that reached the pipeline and produced no inference.
+   *
+   * The cause is required rather than defaulted: "the governor skipped it" and
+   * "the device could not keep up" are opposite findings, and a wrong default
+   * would silently attribute one to the other. `droppedFrames` stays the total.
+   */
+  recordDroppedFrame(cause: 'governor' | 'busy', count = 1): void {
+    this.droppedFrames += count;
+    if (cause === 'governor') {
+      this.droppedFramesGovernor += count;
+    } else {
+      this.droppedFramesBusy += count;
+    }
+  }
+
+  /**
+   * F15 — skip samples drained from the worklet. Batched rather than per-frame
+   * because the samples are accumulated on the camera runtime and handed over
+   * on the metrics tick; the arithmetic is identical to the PWA's per-frame
+   * call, which runs on the only thread that app has.
+   */
+  recordFrameSkipBatch(sum: number, count: number, max: number): void {
+    if (count <= 0) return;
+    this.frameSkipSum += sum;
+    this.frameSkipCount += count;
+    if (max > this.frameSkipMax) this.frameSkipMax = max;
   }
 
   recordDetection(facesCount: number, handsCount: number): void {
@@ -178,6 +301,22 @@ export class PerformanceTracker {
     facesSum: number;
     handsSum: number;
     trackedFrames: number;
+    /** NF7, counted per frame in the worklet; see the note in FrameStats. */
+    lostEvents?: number;
+    recoverySumMs?: number;
+    recoveryCount?: number;
+    consecutiveLossMax?: number;
+    /** NF3 — clock of the first detecting frame in this batch, or 0. */
+    firstTrackedAtMs?: number;
+    /** Per-frame samples; see the note in useTracking's FrameStats. */
+    intervalSamples?: number[];
+    inferenceSamples?: number[];
+    gestureConfidenceSum?: number;
+    gestureConfidenceCount?: number;
+    blendshapeActivationSum?: number;
+    blendshapeActivationCount?: number;
+    landmarkDeltaSum?: number;
+    landmarkDeltaCount?: number;
   }): void {
     if (batch.frames <= 0) {
       return;
@@ -191,6 +330,27 @@ export class PerformanceTracker {
       this.frameTimes.push(meanInterval);
       this.inferenceTimes.push(meanInference);
       this.processingTimes.push(meanProcessing);
+    }
+
+    // The rolling buffers above take batch means, which is fine for the live
+    // HUD. The percentiles must not: averaging is what removes the spikes they
+    // exist to show, so they take the individual samples the worklet carried.
+    for (const sample of batch.intervalSamples ?? []) {
+      if (sample > 0) this.frameIntervalSeries.push(sample);
+    }
+    for (const sample of batch.inferenceSamples ?? []) {
+      this.inferenceSeries.push(sample);
+    }
+
+    this.gestureConfidenceSum += batch.gestureConfidenceSum ?? 0;
+    this.gestureConfidenceCount += batch.gestureConfidenceCount ?? 0;
+    this.blendshapeActivationSum += batch.blendshapeActivationSum ?? 0;
+    this.blendshapeActivationCount += batch.blendshapeActivationCount ?? 0;
+    this.landmarkDeltaSum += batch.landmarkDeltaSum ?? 0;
+    this.landmarkDeltaCount += batch.landmarkDeltaCount ?? 0;
+
+    if (this.firstDetectionAtMs === undefined && (batch.firstTrackedAtMs ?? 0) > 0) {
+      this.firstDetectionAtMs = batch.firstTrackedAtMs;
     }
 
     this.frameCount += batch.frames;
@@ -214,36 +374,58 @@ export class PerformanceTracker {
       }
     }
 
-    // A batch with no detections at all counts as one tracking-loss event.
-    const lost = batch.trackedFrames === 0;
-    if (this.lastTrackingValid && lost) {
-      this.trackingLostCount++;
-      this.currentConsecutiveLoss = batch.frames;
-    } else if (lost) {
-      this.currentConsecutiveLoss += batch.frames;
-    } else {
-      this.currentConsecutiveLoss = 0;
-    }
+    // NF7 — taken from the worklet, which runs the state machine per frame.
+    // Deriving it here from `trackedFrames === 0` would have meant "no
+    // detection anywhere in the 500 ms drain window", so a brief dropout that
+    // the PWA counts as one loss registered as none at all on native. The two
+    // columns were measuring different events; now they measure the same one.
+    this.trackingLostCount += batch.lostEvents ?? 0;
+    this.totalRecoveryTimeMs += batch.recoverySumMs ?? 0;
+    this.recoveryCount += batch.recoveryCount ?? 0;
     this.consecutiveTrackingLossMax = Math.max(
       this.consecutiveTrackingLossMax,
-      this.currentConsecutiveLoss,
+      batch.consecutiveLossMax ?? 0,
     );
-    this.lastTrackingValid = !lost;
+    this.lastTrackingValid = batch.trackedFrames > 0;
   }
 
   recordFrameStart(): number {
     return Date.now();
   }
 
-  /** Measures the MediaPipe call only, matching the PWA's definition. */
+  /**
+   * NF4 — end-to-end: frame in hand to landmarks ready, including this
+   * platform's own image conversion. The PWA brackets the same span.
+   */
   recordInferenceTime(startTime: number): void {
     this.inferenceTimes.push(Date.now() - startTime);
   }
 
+  /**
+   * **Not on this app's production path.** The camera pipeline drains batched
+   * frame statistics from the worklet through `recordBatch`; nothing calls this,
+   * `recordFrameStart`, `recordDetection`, `recordInferenceTime` or
+   * `recordInferenceMs` outside the tests.
+   *
+   * They are kept because they define the per-frame semantics the PWA uses and
+   * the batch path has to reproduce, so the tests over them document the
+   * contract. Treat a test that only exercises this method as evidence about
+   * the contract, **not** about what the app does — that assumption is exactly
+   * how the NF7 counting defect survived: this method had the correct per-frame
+   * tracking-loss logic while the batch path the app actually ran derived loss
+   * per 500 ms drain instead.
+   *
+   * The NF7 state machine has therefore been removed from here and lives in one
+   * place only: the worklet in `useTracking.ts`, which is what runs.
+   */
   recordFrameEnd(frameStart: number, hasTracking: boolean): void {
     const now = Date.now();
     this.processingTimes.push(now - frameStart);
     this.frameCount++;
+
+    if (hasTracking && this.firstDetectionAtMs === undefined) {
+      this.firstDetectionAtMs = now;
+    }
 
     const frameTime = now - this.lastFrameTime;
     this.lastFrameTime = now;
@@ -257,22 +439,8 @@ export class PerformanceTracker {
       }
     }
 
-    if (this.lastTrackingValid && !hasTracking) {
-      this.trackingLostCount++;
-      this.trackingLostTime = now;
-      this.currentConsecutiveLoss = 1;
-    } else if (!this.lastTrackingValid && hasTracking && this.trackingLostTime > 0) {
-      this.totalRecoveryTimeMs += now - this.trackingLostTime;
-      this.recoveryCount++;
-      this.trackingLostTime = 0;
-      this.currentConsecutiveLoss = 0;
-    } else if (!hasTracking && !this.lastTrackingValid) {
-      this.currentConsecutiveLoss++;
-      this.consecutiveTrackingLossMax = Math.max(
-        this.consecutiveTrackingLossMax,
-        this.currentConsecutiveLoss,
-      );
-    }
+    // NF7 accounting deliberately absent — see the note above. One
+    // implementation, in the worklet, on the path the app actually runs.
     this.lastTrackingValid = hasTracking;
 
     if (!this.warmupComplete && this.frameCount >= WARMUP_FRAMES) {
@@ -316,6 +484,9 @@ export class PerformanceTracker {
         : undefined;
 
     const r = PerformanceTracker.round;
+    /** Rounds a value that may be absent — a missing metric stays missing. */
+    const opt = (v: number | undefined, digits: number) =>
+      v === undefined ? undefined : r(v, digits);
     return {
       fps: r(fps, 1),
       avgFps: r(avgFps, 1),
@@ -330,10 +501,11 @@ export class PerformanceTracker {
         native.memoryUsedMB !== undefined ? r(native.memoryUsedMB, 1) : undefined,
       totalMemoryMB: native.totalMemoryMB,
       availableMemoryMB: native.availableMemoryMB,
-      peakMemoryUsageMB: this.peakMemoryUsageMB > 0 ? this.peakMemoryUsageMB : undefined,
-      memoryUsageStartMB: this.memoryUsageStartMB,
-      memoryUsageEndMB: native.memoryUsedMB,
-      memoryDeltaMB,
+      peakMemoryUsageMB: this.peakMemoryUsageMB > 0 ? r(this.peakMemoryUsageMB, 1) : undefined,
+      memoryUsageStartMB:
+        this.memoryUsageStartMB !== undefined ? r(this.memoryUsageStartMB, 1) : undefined,
+      memoryUsageEndMB: native.memoryUsedMB !== undefined ? r(native.memoryUsedMB, 1) : undefined,
+      memoryDeltaMB: memoryDeltaMB !== undefined ? r(memoryDeltaMB, 1) : undefined,
 
       cpuUsagePercent: native.cpuUsagePercent,
       cpuCores: native.cpuCores,
@@ -349,18 +521,21 @@ export class PerformanceTracker {
       batteryCharging: native.batteryCharging,
       batteryLevelStart: this.batteryLevelStart,
       batteryLevelEnd: native.batteryLevel,
-      batteryDeltaPercent,
+      batteryDeltaPercent:
+        batteryDeltaPercent !== undefined ? r(batteryDeltaPercent, 2) : undefined,
 
       facesDetectedAvg:
         this.detectionFrameCount > 0
-          ? this.totalFacesDetected / this.detectionFrameCount
+          ? r(this.totalFacesDetected / this.detectionFrameCount, 2)
           : undefined,
       handsDetectedAvg:
         this.detectionFrameCount > 0
-          ? this.totalHandsDetected / this.detectionFrameCount
+          ? r(this.totalHandsDetected / this.detectionFrameCount, 2)
           : undefined,
       detectionRate:
-        sessionDurationMs > 0 ? (this.detectionFrameCount * 1000) / sessionDurationMs : undefined,
+        sessionDurationMs > 0
+          ? r((this.detectionFrameCount * 1000) / sessionDurationMs, 1)
+          : undefined,
 
       modelLoadTimeMs: this.modelLoadTimeMs,
 
@@ -372,8 +547,64 @@ export class PerformanceTracker {
 
       trackingRecoveryTimeMs:
         this.recoveryCount > 0 ? Math.round(this.totalRecoveryTimeMs / this.recoveryCount) : undefined,
-      consecutiveTrackingLossMax: this.consecutiveTrackingLossMax,
-      errorCount: this.errorCount,
+      // NULL rather than 0 when nothing happened, matching the PWA. AVG() treats
+      // the two differently, so a mismatch here silently skews any aggregate that
+      // mixes platforms.
+      consecutiveTrackingLossMax:
+        this.consecutiveTrackingLossMax > 0 ? this.consecutiveTrackingLossMax : undefined,
+      errorCount: this.errorCount > 0 ? this.errorCount : undefined,
+
+      // Run conditions
+      frameWidth: this.runConditions.frameWidth,
+      frameHeight: this.runConditions.frameHeight,
+      renderBackend: this.runConditions.renderBackend,
+      inferenceThreading: this.runConditions.inferenceThreading,
+      smoothingEnabled: this.runConditions.smoothingEnabled,
+      dynamicInferenceEnabled: this.runConditions.dynamicInferenceEnabled,
+      timeToFirstDetectionMs:
+        this.firstDetectionAtMs !== undefined
+          ? r(this.firstDetectionAtMs - this.startTime, 1)
+          : undefined,
+
+      // Distribution over the whole session, from per-frame samples.
+      inferenceTimeP50Ms: opt(this.inferenceSeries.percentile(0.5), 1),
+      inferenceTimeP95Ms: opt(this.inferenceSeries.percentile(0.95), 1),
+      inferenceTimeP99Ms: opt(this.inferenceSeries.percentile(0.99), 1),
+      frameIntervalP50Ms: opt(this.frameIntervalSeries.percentile(0.5), 1),
+      frameIntervalP95Ms: opt(this.frameIntervalSeries.percentile(0.95), 1),
+      frameIntervalP99Ms: opt(this.frameIntervalSeries.percentile(0.99), 1),
+
+      // Render time is deliberately absent here, not merely unimplemented.
+      // The PWA has one imperative draw call to bracket; this app renders
+      // declaratively through Skia and Reanimated on the UI runtime, where
+      // there is no equivalent point to time. Emitting a number measured a
+      // different way would be worse than emitting none — it would invite a
+      // comparison the measurement cannot support. See METRICS.md.
+      avgRenderTimeMs: undefined,
+      renderTimeP95Ms: undefined,
+
+      appStartupMs: opt(this.appStartupMs, 1),
+
+      avgFrameSkip:
+        this.frameSkipCount > 0
+          ? Math.round((this.frameSkipSum / this.frameSkipCount) * 100) / 100
+          : undefined,
+      maxFrameSkip: this.frameSkipCount > 0 ? this.frameSkipMax : undefined,
+      droppedFramesGovernor: this.droppedFramesGovernor,
+      droppedFramesBusy: this.droppedFramesBusy,
+
+      avgGestureConfidence:
+        this.gestureConfidenceCount > 0
+          ? r(this.gestureConfidenceSum / this.gestureConfidenceCount, 3)
+          : undefined,
+      avgBlendshapeActivation:
+        this.blendshapeActivationCount > 0
+          ? r(this.blendshapeActivationSum / this.blendshapeActivationCount, 3)
+          : undefined,
+      landmarkStability:
+        this.landmarkDeltaCount > 0
+          ? r(this.landmarkDeltaSum / this.landmarkDeltaCount, 5)
+          : undefined,
     };
   }
 }

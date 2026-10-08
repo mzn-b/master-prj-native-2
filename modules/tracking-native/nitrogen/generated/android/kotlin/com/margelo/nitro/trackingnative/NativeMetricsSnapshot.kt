@@ -50,7 +50,10 @@ data class NativeMetricsSnapshot(
   val gpuVendor: String?,
   @DoNotStrip
   @Keep
-  val gpuRenderer: String?
+  val gpuRenderer: String?,
+  @DoNotStrip
+  @Keep
+  val deviceModel: String?
 ) {
   /* primary constructor */
 
@@ -68,6 +71,7 @@ data class NativeMetricsSnapshot(
       && Objects.deepEquals(this.batteryCharging, other.batteryCharging)
       && Objects.deepEquals(this.gpuVendor, other.gpuVendor)
       && Objects.deepEquals(this.gpuRenderer, other.gpuRenderer)
+      && Objects.deepEquals(this.deviceModel, other.deviceModel)
   }
 
   override fun hashCode(): Int {
@@ -82,7 +86,8 @@ data class NativeMetricsSnapshot(
       batteryLevel,
       batteryCharging,
       gpuVendor,
-      gpuRenderer
+      gpuRenderer,
+      deviceModel
     ).contentDeepHashCode()
   }
 
@@ -94,8 +99,8 @@ data class NativeMetricsSnapshot(
     @Keep
     @Suppress("unused")
     @JvmStatic
-    private fun fromCpp(cpuUsagePercent: Double?, memoryUsedMB: Double?, totalMemoryMB: Double?, availableMemoryMB: Double?, cpuCores: Double?, threadCount: Double?, thermalState: String?, batteryLevel: Double?, batteryCharging: Boolean?, gpuVendor: String?, gpuRenderer: String?): NativeMetricsSnapshot {
-      return NativeMetricsSnapshot(cpuUsagePercent, memoryUsedMB, totalMemoryMB, availableMemoryMB, cpuCores, threadCount, thermalState, batteryLevel, batteryCharging, gpuVendor, gpuRenderer)
+    private fun fromCpp(cpuUsagePercent: Double?, memoryUsedMB: Double?, totalMemoryMB: Double?, availableMemoryMB: Double?, cpuCores: Double?, threadCount: Double?, thermalState: String?, batteryLevel: Double?, batteryCharging: Boolean?, gpuVendor: String?, gpuRenderer: String?, deviceModel: String?): NativeMetricsSnapshot {
+      return NativeMetricsSnapshot(cpuUsagePercent, memoryUsedMB, totalMemoryMB, availableMemoryMB, cpuCores, threadCount, thermalState, batteryLevel, batteryCharging, gpuVendor, gpuRenderer, deviceModel)
     }
   }
 }

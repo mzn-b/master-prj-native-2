@@ -14,8 +14,16 @@ const RIGHT_EYE_OUTER = 263;
  * large multiplier here made the glasses far too wide.
  */
 const WIDTH_SCALE = 1.25;
-/** Source aspect ratio of sunglasses.png (height / width). */
-const ASPECT = 0.42;
+/**
+ * Fallback aspect (height / width) for the frames before the image has loaded.
+ *
+ * The real value is read off the decoded image below. It used to be hard-coded
+ * at 0.42 while sunglasses.png is 955x350 — an aspect of 0.366 — so the frames
+ * were drawn ~15% too tall and `fit="fill"` stretched them. That distortion was
+ * present on both platforms but only became obvious once the overlay geometry
+ * stopped scaling everything up uniformly.
+ */
+const FALLBACK_ASPECT = 350 / 955;
 
 export interface GlassesFilterProps {
   latest: SharedValue<RawDetection | null>;
@@ -25,6 +33,9 @@ export interface GlassesFilterProps {
 /** 2D sunglasses anchored to the eye line, rotating and scaling with the face. */
 export function GlassesFilter({latest, geometry}: GlassesFilterProps): React.JSX.Element | null {
   const image = useImage(require('../../../assets/filters/sunglasses.png'));
+
+  // Taken from the decoded image so it cannot drift from the asset.
+  const aspect = image ? image.height() / image.width() : FALLBACK_ASPECT;
 
   const transform = useDerivedValue(() => {
     const detection = latest.value;
@@ -49,7 +60,7 @@ export function GlassesFilter({latest, geometry}: GlassesFilterProps): React.JSX
     const dy = right.y - left.y;
     const eyeDistance = Math.hypot(dx, dy);
     const width = eyeDistance * WIDTH_SCALE;
-    const height = width * ASPECT;
+    const height = width * aspect;
 
     return {
       x: (left.x + right.x) / 2 - width / 2,

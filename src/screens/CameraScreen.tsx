@@ -1,5 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Camera, useCameraDevice, useCameraPermission} from 'react-native-vision-camera';
+import {
+  NativePreviewView,
+  useCamera,
+  useCameraDevice,
+  useCameraPermission,
+  usePreviewOutput,
+} from 'react-native-vision-camera';
 import {Platform, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent} from 'react-native';
 import type {PerformanceMetricsDTO, TrackingDTO, TrackingMode} from '../domain/tracking.dto';
 import {submitTrackingSession} from '../api/trackingApi';
@@ -36,7 +42,7 @@ export function CameraScreen(): React.JSX.Element {
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(DEFAULT_ACTIVE_FILTERS);
   const [smoothingEnabled, setSmoothingEnabled] = useState(true);
   const [dynamicInferenceEnabled, setDynamicInferenceEnabled] = useState(true);
-  const [showPerformance, setShowPerformance] = useState(true);
+  const [showPerformance, setShowPerformance] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [debugTracking, setDebugTracking] = useState<TrackingDTO | null>(null);
@@ -74,6 +80,44 @@ export function CameraScreen(): React.JSX.Element {
     }
   }, [hasPermission, requestPermission]);
 
+  /**
+   * The preview is its own camera output, negotiated separately from the frame
+   * output and — per VisionCamera's docs — without regard for aspect ratio. We
+   * own it here rather than letting <Camera> create one internally, because the
+   * overlay has to know the size of what is actually on screen: projecting
+   * landmarks with the analysis frame's dimensions scales them against the wrong
+   * field of view and every overlay lands uniformly too large.
+   */
+  const previewOutput = usePreviewOutput();
+  useCamera({
+    // The hook cannot be conditional, so fall back to the position when the
+    // device list has not resolved yet; it resolves to the same camera.
+    device: device ?? 'front',
+    isActive: isRunning,
+    outputs: [previewOutput, frameOutput],
+    onError: error => setCameraError(error.message),
+  });
+
+  const [previewDims, setPreviewDims] = useState<{width: number; height: number} | null>(null);
+  useEffect(() => {
+    if (!isRunning) {
+      return;
+    }
+    // currentResolution is only populated once the session has negotiated, so
+    // poll alongside the frame size rather than reading it once on start.
+    const id = setInterval(() => {
+      const r = previewOutput.currentResolution;
+      if (r && r.width > 0) {
+        setPreviewDims(current =>
+          current && current.width === r.width && current.height === r.height
+            ? current
+            : {width: r.width, height: r.height},
+        );
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [isRunning, previewOutput]);
+
   // Frame dimensions come from the frames themselves rather than a requested
   // format, so the overlay matches what the camera actually delivered.
   const [frameDims, setFrameDims] = useState({width: 1280, height: 720});
@@ -97,13 +141,15 @@ export function CameraScreen(): React.JSX.Element {
     () => ({
       frameWidth: frameDims.width,
       frameHeight: frameDims.height,
+      previewWidth: previewDims?.width,
+      previewHeight: previewDims?.height,
       viewWidth: preview.width,
       viewHeight: preview.height,
       rotation: FRAME_ROTATION,
       mirrorX: true, // front camera, selfie convention
       resizeMode: 'cover',
     }),
-    [frameDims, preview],
+    [frameDims, previewDims, preview],
   );
 
   const onPreviewLayout = useCallback((event: LayoutChangeEvent) => {
@@ -194,12 +240,9 @@ export function CameraScreen(): React.JSX.Element {
           // unmounting per session tears the capture session down each time,
           // which trips an AVFoundation assertion on iOS
           // (detachFromFigCaptureSession) and aborts the app.
-          <Camera
+          <NativePreviewView
             style={StyleSheet.absoluteFill}
-            device={device}
-            isActive={isRunning}
-            outputs={[frameOutput]}
-            onError={error => setCameraError(error.message)}
+            previewOutput={previewOutput}
           />
         ) : (
           <View style={styles.placeholder}>

@@ -54,6 +54,8 @@ namespace margelo::nitro::trackingnative {
       jni::local_ref<jni::JString> gpuVendor = this->getFieldValue(fieldGpuVendor);
       static const auto fieldGpuRenderer = clazz->getField<jni::JString>("gpuRenderer");
       jni::local_ref<jni::JString> gpuRenderer = this->getFieldValue(fieldGpuRenderer);
+      static const auto fieldDeviceModel = clazz->getField<jni::JString>("deviceModel");
+      jni::local_ref<jni::JString> deviceModel = this->getFieldValue(fieldDeviceModel);
       return NativeMetricsSnapshot(
         cpuUsagePercent != nullptr ? std::make_optional(cpuUsagePercent->value()) : std::nullopt,
         memoryUsedMB != nullptr ? std::make_optional(memoryUsedMB->value()) : std::nullopt,
@@ -65,7 +67,8 @@ namespace margelo::nitro::trackingnative {
         batteryLevel != nullptr ? std::make_optional(batteryLevel->value()) : std::nullopt,
         batteryCharging != nullptr ? std::make_optional(static_cast<bool>(batteryCharging->value())) : std::nullopt,
         gpuVendor != nullptr ? std::make_optional(gpuVendor->toStdString()) : std::nullopt,
-        gpuRenderer != nullptr ? std::make_optional(gpuRenderer->toStdString()) : std::nullopt
+        gpuRenderer != nullptr ? std::make_optional(gpuRenderer->toStdString()) : std::nullopt,
+        deviceModel != nullptr ? std::make_optional(deviceModel->toStdString()) : std::nullopt
       );
     }
 
@@ -75,7 +78,7 @@ namespace margelo::nitro::trackingnative {
      */
     [[maybe_unused]]
     static jni::local_ref<JNativeMetricsSnapshot::javaobject> fromCpp(const NativeMetricsSnapshot& value) {
-      using JSignature = JNativeMetricsSnapshot(jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JString>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JBoolean>, jni::alias_ref<jni::JString>, jni::alias_ref<jni::JString>);
+      using JSignature = JNativeMetricsSnapshot(jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JString>, jni::alias_ref<jni::JDouble>, jni::alias_ref<jni::JBoolean>, jni::alias_ref<jni::JString>, jni::alias_ref<jni::JString>, jni::alias_ref<jni::JString>);
       static const auto clazz = javaClassStatic();
       static const auto create = clazz->getStaticMethod<JSignature>("fromCpp");
       return create(
@@ -90,7 +93,8 @@ namespace margelo::nitro::trackingnative {
         value.batteryLevel.has_value() ? jni::JDouble::valueOf(value.batteryLevel.value()) : nullptr,
         value.batteryCharging.has_value() ? jni::JBoolean::valueOf(value.batteryCharging.value()) : nullptr,
         value.gpuVendor.has_value() ? jni::make_jstring(value.gpuVendor.value()) : nullptr,
-        value.gpuRenderer.has_value() ? jni::make_jstring(value.gpuRenderer.value()) : nullptr
+        value.gpuRenderer.has_value() ? jni::make_jstring(value.gpuRenderer.value()) : nullptr,
+        value.deviceModel.has_value() ? jni::make_jstring(value.deviceModel.value()) : nullptr
       );
     }
   };

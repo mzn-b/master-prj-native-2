@@ -1,6 +1,10 @@
 import {Dimensions, Platform} from 'react-native';
 import type {PerformanceMetricsDTO, TrackingMode} from '../domain/tracking.dto';
+import {getNativeMetrics} from '../metrics/nativeMetrics';
 import {API_BASE_URL} from './config';
+// Generated per build by scripts/stamp-build.mjs so a session can be traced
+// back to the code that produced it.
+import {APP_VERSION} from '../config/buildInfo';
 
 export type PlatformName = 'IOS_PWA' | 'ANDROID_PWA' | 'IOS_NATIVE' | 'ANDROID_NATIVE';
 
@@ -21,7 +25,6 @@ export interface TrackingSessionResponse {
   message: string;
 }
 
-const APP_VERSION = '1.0.0';
 
 function currentPlatform(): PlatformName {
   return Platform.OS === 'ios' ? 'IOS_NATIVE' : 'ANDROID_NATIVE';
@@ -30,7 +33,11 @@ function currentPlatform(): PlatformName {
 function deviceInfo(): DeviceInfo {
   const {width, height} = Dimensions.get('window');
   return {
-    deviceModel: Platform.OS === 'ios' ? 'iOS device' : 'Android device',
+    // The real handset — "Google Pixel 7", "iPhone14,6" — read through the
+    // Nitro metrics module. This used to be the literal string "Android device",
+    // which made every native row impossible to attribute to a device in a study
+    // whose whole point is comparing devices.
+    deviceModel: getNativeMetrics().deviceModel ?? `${Platform.OS} device`,
     osVersion: `${Platform.OS} ${String(Platform.Version)}`,
     appVersion: APP_VERSION,
     screenWidth: Math.round(width),

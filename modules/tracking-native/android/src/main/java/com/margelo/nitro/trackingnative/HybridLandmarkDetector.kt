@@ -90,6 +90,14 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     }
     lastTimestampMs = ts
 
+    // NF4 — inferenceTimeMs is measured end-to-end: frame in hand -> landmarks
+    // ready, including this platform's own image conversion and the packing
+    // loop below. Timing only the MediaPipe call would hide the ImageProxy ->
+    // Bitmap conversion, which is real work Android has to do and the browser
+    // does not, and would make the platform look faster than it is. The PWA
+    // brackets the equivalent span.
+    val started = System.nanoTime()
+
     val nativeFrame = frame as? NativeFrame ?: return empty(timestampMs)
     val bitmap = bitmapOf(nativeFrame.image) ?: return empty(timestampMs)
 
@@ -102,12 +110,8 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
       .setRotationDegrees(rotation)
       .build()
 
-    val started = System.nanoTime()
-
     val faceResult = if (wantFace) engine.faceLandmarker?.detectForVideo(mpImage, options, ts) else null
     val handResult = if (wantHand) engine.gestureRecognizer?.recognizeForVideo(mpImage, options, ts) else null
-
-    val inferenceMs = (System.nanoTime() - started) / 1_000_000.0
 
     val faces = faceResult?.faceLandmarks() ?: emptyList()
     val hands = handResult?.landmarks() ?: emptyList()
@@ -162,6 +166,8 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     }
 
     mpImage.close()
+
+    val inferenceMs = (System.nanoTime() - started) / 1_000_000.0
 
     return@synchronized RawDetection(
       timestampMs = timestampMs,

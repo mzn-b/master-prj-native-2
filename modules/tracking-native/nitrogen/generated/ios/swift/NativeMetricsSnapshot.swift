@@ -18,7 +18,7 @@ public extension NativeMetricsSnapshot {
   /**
    * Create a new instance of `NativeMetricsSnapshot`.
    */
-  init(cpuUsagePercent: Double?, memoryUsedMB: Double?, totalMemoryMB: Double?, availableMemoryMB: Double?, cpuCores: Double?, threadCount: Double?, thermalState: String?, batteryLevel: Double?, batteryCharging: Bool?, gpuVendor: String?, gpuRenderer: String?) {
+  init(cpuUsagePercent: Double?, memoryUsedMB: Double?, totalMemoryMB: Double?, availableMemoryMB: Double?, cpuCores: Double?, threadCount: Double?, thermalState: String?, batteryLevel: Double?, batteryCharging: Bool?, gpuVendor: String?, gpuRenderer: String?, deviceModel: String?) {
     self.init({ () -> bridge.std__optional_double_ in
       if let __unwrappedValue = cpuUsagePercent {
         return bridge.create_std__optional_double_(__unwrappedValue)
@@ -81,6 +81,12 @@ public extension NativeMetricsSnapshot {
       }
     }(), { () -> bridge.std__optional_std__string_ in
       if let __unwrappedValue = gpuRenderer {
+        return bridge.create_std__optional_std__string_(std.string(__unwrappedValue))
+      } else {
+        return .init()
+      }
+    }(), { () -> bridge.std__optional_std__string_ in
+      if let __unwrappedValue = deviceModel {
         return bridge.create_std__optional_std__string_(std.string(__unwrappedValue))
       } else {
         return .init()
@@ -213,6 +219,18 @@ public extension NativeMetricsSnapshot {
     return { () -> String? in
       if bridge.has_value_std__optional_std__string_(self.__gpuRenderer) {
         let __unwrapped = bridge.get_std__optional_std__string_(self.__gpuRenderer)
+        return String(__unwrapped)
+      } else {
+        return nil
+      }
+    }()
+  }
+  
+  @inline(__always)
+  var deviceModel: String? {
+    return { () -> String? in
+      if bridge.has_value_std__optional_std__string_(self.__deviceModel) {
+        let __unwrapped = bridge.get_std__optional_std__string_(self.__deviceModel)
         return String(__unwrapped)
       } else {
         return nil

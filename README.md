@@ -146,3 +146,25 @@ is needed first, and the conversion asymmetry belongs in the limitations section
    filter also submits and starts a new measurement window, so each filter combination is
    its own session.
 6. `SELECT * FROM tracking_sessions ORDER BY recorded_at DESC LIMIT 5;`
+
+## Build stamping
+
+`scripts/stamp-build.mjs` writes `src/config/buildInfo.ts` with
+`version+gitsha[-dirty]`, which is submitted with every session as `appVersion`.
+It runs automatically before `npm run start|android|ios` via npm pre-scripts.
+
+**A build started directly from Xcode or Gradle carries whatever stamp was
+written last** — run `npm run stamp` first in that case. A `-dirty` suffix means
+the build corresponds to no commit, which is acceptable for a pilot but not for
+runs that end up in the thesis.
+
+## Participant consent
+
+`src/ui/ConsentGate.tsx` gates the whole app until consent is given, so the
+camera cannot be reached without it. The notice text lives in
+`src/ui/consentText.ts` and is **byte-identical to the PWA's copy**, which a test
+asserts. Consent is deliberately not persisted: study sessions are supervised
+individually on a shared device, so every launch asks again.
+
+While the controller block in `consentText.ts` still contains `TODO`, the gate
+replaces the accept button with a warning and the app refuses to proceed.

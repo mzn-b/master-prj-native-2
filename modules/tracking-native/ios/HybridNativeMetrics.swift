@@ -32,7 +32,12 @@ final class HybridNativeMetrics: HybridNativeMetricsSpec {
       batteryLevel: batteryLevel >= 0 ? Double(batteryLevel) * 100 : nil,
       batteryCharging: charging,
       gpuVendor: "Apple",
-      gpuRenderer: Self.deviceModel()
+      // Apple does not name the GPU separately; the machine identifier is the
+      // closest thing, and it does identify the GPU generation.
+      gpuRenderer: Self.deviceModel(),
+      // e.g. "iPhone14,6". Not the marketing name, but it names the handset
+      // unambiguously, which the literal "iOS device" it replaces did not.
+      deviceModel: Self.deviceModel()
     )
   }
 

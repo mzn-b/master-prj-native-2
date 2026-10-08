@@ -1,18 +1,22 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {useAsyncRunner, useFrameOutput} from 'react-native-vision-camera';
+import {CommonResolutions, useAsyncRunner, useFrameOutput} from 'react-native-vision-camera';
 // Shared values are Reanimated's API; react-native-worklets is the runtime beneath it.
 import {useAnimatedReaction, useSharedValue} from 'react-native-reanimated';
 import {NitroModules} from 'react-native-nitro-modules';
 import {createLandmarkDetector} from 'tracking-native';
 import type {PerformanceMetricsDTO, TrackingMode} from '../domain/tracking.dto';
-import type {RawDetection} from '../native/landmarkFormat';
+import {VALUES_PER_POINT, type RawDetection} from '../native/landmarkFormat';
+
+/** MediaPipe face-mesh nose tip — the landmark used as the jitter reference. */
+const NOSE_TIP_INDEX = 1;
 import {getNativeMetrics} from '../metrics/nativeMetrics';
-import {DEFAULT_SMOOTHING_CONFIG, LandmarkSmoother} from './LandmarkSmoother';
+import {DEFAULT_SMOOTHING_CONFIG} from './LandmarkSmoother';
 import {
   DEFAULT_DYNAMIC_INFERENCE_CONFIG,
   DynamicInferenceController,
 } from './DynamicInferenceController';
 import {applyDropoutGrace, emptyGraceState} from './dropoutGrace';
+import {applySmoothing, emptySmoothingState} from './packedSmoothing';
 import {PerformanceTracker} from './PerformanceTracker';
 
 /** The only periodic React state update in the app. */
@@ -28,13 +32,54 @@ interface FrameStats {
   facesSum: number;
   handsSum: number;
   trackedFrames: number;
+  /**
+   * NF7, counted **per frame** rather than per drain.
+   *
+   * These used to be derived in the tracker from `trackedFrames === 0`, which
+   * made a loss event mean "no detection anywhere in a 500 ms window". The PWA
+   * counts a single missed frame, so native needed a ~25x longer blackout to
+   * register the same event and the two columns were not comparable. The state
+   * machine now lives here, where the individual frames are, and matches the
+   * PWA's exactly. See METRICS.md.
+   */
+  lostEvents: number;
+  recoverySumMs: number;
+  recoveryCount: number;
+  consecutiveLossMax: number;
   lastAtMs: number;
+  /** NF3 — clock of the first detecting frame since the last drain, or 0. */
+  firstTrackedAtMs: number;
+  /**
+   * Per-frame samples for the session percentiles.
+   *
+   * The sums above are enough for means, but percentiles taken over batch means
+   * understate jitter — averaging is exactly what removes the spikes a user
+   * feels. The drain runs every 500 ms, so these hold a handful of entries at a
+   * time and are cleared on each drain.
+   */
+  intervalSamples: number[];
+  inferenceSamples: number[];
+  /** Detection quality, summed per drain — see PerformanceTracker. */
+  gestureConfidenceSum: number;
+  gestureConfidenceCount: number;
+  blendshapeActivationSum: number;
+  blendshapeActivationCount: number;
+  landmarkDeltaSum: number;
+  landmarkDeltaCount: number;
 }
 
 function emptyStats(): FrameStats {
   'worklet';
   return {
     frames: 0,
+    intervalSamples: [],
+    inferenceSamples: [],
+    gestureConfidenceSum: 0,
+    gestureConfidenceCount: 0,
+    blendshapeActivationSum: 0,
+    blendshapeActivationCount: 0,
+    landmarkDeltaSum: 0,
+    landmarkDeltaCount: 0,
     intervalSumMs: 0,
     minIntervalMs: 0,
     maxIntervalMs: 0,
@@ -43,7 +88,12 @@ function emptyStats(): FrameStats {
     facesSum: 0,
     handsSum: 0,
     trackedFrames: 0,
+    lostEvents: 0,
+    recoverySumMs: 0,
+    recoveryCount: 0,
+    consecutiveLossMax: 0,
     lastAtMs: 0,
+    firstTrackedAtMs: 0,
   };
 }
 
@@ -85,7 +135,6 @@ export function useTracking(options: UseTrackingOptions) {
    */
   const boxedDetector = useMemo(() => NitroModules.box(detector), [detector]);
   const tracker = useRef(new PerformanceTracker()).current;
-  const smoother = useRef(new LandmarkSmoother(DEFAULT_SMOOTHING_CONFIG)).current;
   const governor = useRef(
     new DynamicInferenceController(DEFAULT_DYNAMIC_INFERENCE_CONFIG),
   ).current;
@@ -95,7 +144,39 @@ export function useTracking(options: UseTrackingOptions) {
   // SharedValue or a HybridObject — a JS class instance has no methods on the
   // worklet runtime and fails at runtime, not at compile time.
   const graceState = useSharedValue(emptyGraceState());
+  const smoothState = useSharedValue(emptySmoothingState());
+  /**
+   * F9 — read by the smoothing worklet. The LandmarkSmoother instance below
+   * cannot be reached from a worklet, so the toggle has to live in a SharedValue.
+   */
+  const smoothingConfig = useSharedValue({...DEFAULT_SMOOTHING_CONFIG});
   const droppedFrames = useSharedValue(0);
+  // F15 accounting. The two drop causes are counted apart because they mean
+  // opposite things: the governor skipping is the system working, the runner
+  // refusing is the device overwhelmed. Skip level is sampled per camera frame.
+  // NF7 state that has to survive a drain: whether tracking was valid on the
+  // previous frame, when the current loss began, and how long it has run.
+  const trackingValid = useSharedValue(false);
+  const lostAtMs = useSharedValue(0);
+  const consecutiveLoss = useSharedValue(0);
+  const droppedGovernor = useSharedValue(0);
+  const droppedBusy = useSharedValue(0);
+  const frameSkipSum = useSharedValue(0);
+  const frameSkipFrames = useSharedValue(0);
+  const frameSkipMax = useSharedValue(0);
+  /**
+   * Detection failures, drained onto the tracker like droppedFrames.
+   *
+   * The PWA has always counted these (its engine reports through `onError`),
+   * while this side let a throw escape the worklet uncounted — so `errorCount`
+   * was live in one dataset and structurally zero in the other. A metric that
+   * only one platform can report makes that platform look worse for a reason
+   * that is not about the platform.
+   */
+  const detectErrors = useSharedValue(0);
+  /** Previous nose-tip position, for the landmark-jitter metric. -1 means none. */
+  const lastNoseX = useSharedValue(-1);
+  const lastNoseY = useSharedValue(-1);
   /**
    * Measurements accumulated on the worklet runtime and drained by the metrics
    * tick. The tracker itself is a JS object and cannot be called from here.
@@ -103,8 +184,8 @@ export function useTracking(options: UseTrackingOptions) {
   const stats = useSharedValue(emptyStats());
 
   useEffect(() => {
-    smoother.setConfig({enabled: options.smoothingEnabled});
-  }, [options.smoothingEnabled, smoother]);
+    smoothingConfig.value = {...DEFAULT_SMOOTHING_CONFIG, enabled: options.smoothingEnabled};
+  }, [options.smoothingEnabled, smoothingConfig]);
 
   useEffect(() => {
     governor.setConfig({enabled: options.dynamicInferenceEnabled});
@@ -121,6 +202,15 @@ export function useTracking(options: UseTrackingOptions) {
      * landmarks. Keep 'rgb' on both.
      */
     pixelFormat: 'rgb',
+    /**
+     * NF4 — pinned, not left to the default. Inference cost scales with source
+     * resolution, so a comparison across platforms is only meaningful if both
+     * capture at the same size. 720p is also what useFrameOutput happens to
+     * default to today; stating it means a library default cannot move it out
+     * from under the measurements. The PWA requests the same size, and both
+     * apps submit the size the camera actually delivered.
+     */
+    targetResolution: CommonResolutions.HD_16_9,
     onFrame(frame) {
       'worklet';
       frameCounter.value += 1;
@@ -134,9 +224,23 @@ export function useTracking(options: UseTrackingOptions) {
         frameSize.value = {width: frame.width, height: frame.height};
       }
 
-      // F15 — skip without touching the detector at all.
-      if (frameCounter.value % frameSkip.value !== 0) {
+      // F15 — skip without touching the detector at all. Counted as dropped:
+      // the frame reached the pipeline and produced no inference, which is what
+      // the droppedFrames column measures. The PWA counts the same event, so the
+      // column means the same thing in both datasets — see docs/pwa-followups.md #8.
+      // Sampled before the check so every camera frame contributes and the
+      // mean divider is time-weighted, matching the PWA.
+      const skip = frameSkip.value;
+      frameSkipSum.value += skip;
+      frameSkipFrames.value += 1;
+      if (skip > frameSkipMax.value) {
+        frameSkipMax.value = skip;
+      }
+
+      if (frameCounter.value % skip !== 0) {
         frame.dispose();
+        droppedFrames.value += 1;
+        droppedGovernor.value += 1;
         return;
       }
 
@@ -157,8 +261,87 @@ export function useTracking(options: UseTrackingOptions) {
           const finishedAt = Date.now();
           const previous = stats.value;
           const interval = previous.lastAtMs > 0 ? finishedAt - previous.lastAtMs : 0;
+          // Quality signals, read from the detection MediaPipe just produced.
+          // The PWA reads these from the smoothed DTO because that is what it
+          // draws; here the smoothing happens downstream on the UI runtime, so
+          // these are the raw values. Documented in METRICS.md — the jitter
+          // figures are therefore pre-smoothing on native and post-smoothing in
+          // the PWA, and must not be compared without saying so.
+          let gestureSum = previous.gestureConfidenceSum;
+          let gestureCount = previous.gestureConfidenceCount;
+          for (const hand of detection.hands) {
+            if (hand.gestureScore !== undefined) {
+              gestureSum += hand.gestureScore;
+              gestureCount += 1;
+            }
+          }
+
+          // NF7 — the same state machine the PWA runs in recordFrameEnd, at
+          // the same granularity. `detected` is raw detector output, which is
+          // also what the PWA counts (its grace is excluded from the metrics
+          // via rawFaceCount/rawHandCount).
+          const detected = detection.faceCount + detection.handCount > 0;
+          let lostEvents = previous.lostEvents;
+          let recoverySumMs = previous.recoverySumMs;
+          let recoveryCount = previous.recoveryCount;
+          if (trackingValid.value && !detected) {
+            lostEvents += 1;
+            lostAtMs.value = finishedAt;
+            consecutiveLoss.value = 1;
+          } else if (!trackingValid.value && detected && lostAtMs.value > 0) {
+            recoverySumMs += finishedAt - lostAtMs.value;
+            recoveryCount += 1;
+            lostAtMs.value = 0;
+            consecutiveLoss.value = 0;
+          } else if (!detected) {
+            consecutiveLoss.value += 1;
+          } else {
+            consecutiveLoss.value = 0;
+          }
+          trackingValid.value = detected;
+
+          let blendSum = previous.blendshapeActivationSum;
+          let blendCount = previous.blendshapeActivationCount;
+          const shapes = new Float32Array(detection.blendshapes);
+          if (shapes.length > 0) {
+            let top = 0;
+            for (let i = 0; i < shapes.length; i++) {
+              if (shapes[i] > top) top = shapes[i];
+            }
+            blendSum += top;
+            blendCount += 1;
+          }
+
+          let deltaSum = previous.landmarkDeltaSum;
+          let deltaCount = previous.landmarkDeltaCount;
+          if (detection.faceCount > 0) {
+            const values = new Float32Array(detection.landmarks);
+            const at = NOSE_TIP_INDEX * VALUES_PER_POINT;
+            const nx = values[at];
+            const ny = values[at + 1];
+            if (lastNoseX.value >= 0) {
+              const dx = nx - lastNoseX.value;
+              const dy = ny - lastNoseY.value;
+              deltaSum += Math.sqrt(dx * dx + dy * dy);
+              deltaCount += 1;
+            }
+            lastNoseX.value = nx;
+            lastNoseY.value = ny;
+          } else {
+            // Tracking lost: the next delta would measure re-acquisition.
+            lastNoseX.value = -1;
+          }
+
           stats.value = {
             frames: previous.frames + 1,
+            intervalSamples: [...previous.intervalSamples, interval],
+            inferenceSamples: [...previous.inferenceSamples, detection.inferenceTimeMs],
+            gestureConfidenceSum: gestureSum,
+            gestureConfidenceCount: gestureCount,
+            blendshapeActivationSum: blendSum,
+            blendshapeActivationCount: blendCount,
+            landmarkDeltaSum: deltaSum,
+            landmarkDeltaCount: deltaCount,
             intervalSumMs: previous.intervalSumMs + interval,
             minIntervalMs:
               interval > 0 ? Math.min(previous.minIntervalMs || interval, interval) : previous.minIntervalMs,
@@ -167,10 +350,27 @@ export function useTracking(options: UseTrackingOptions) {
             processingSumMs: previous.processingSumMs + (finishedAt - startedAt),
             facesSum: previous.facesSum + detection.faceCount,
             handsSum: previous.handsSum + detection.handCount,
-            trackedFrames:
-              previous.trackedFrames + (detection.faceCount + detection.handCount > 0 ? 1 : 0),
+            trackedFrames: previous.trackedFrames + (detected ? 1 : 0),
+            lostEvents,
+            recoverySumMs,
+            recoveryCount,
+            consecutiveLossMax: Math.max(
+              previous.consecutiveLossMax,
+              consecutiveLoss.value,
+            ),
             lastAtMs: finishedAt,
+            firstTrackedAtMs:
+              previous.firstTrackedAtMs > 0
+                ? previous.firstTrackedAtMs
+                : detected
+                  ? finishedAt
+                  : 0,
           };
+        } catch {
+          // Counted rather than rethrown: the async runner has nowhere to
+          // surface a throw, and an uncounted failure is indistinguishable from
+          // a frame that simply found nothing.
+          detectErrors.value += 1;
         } finally {
           frame.dispose();
         }
@@ -182,11 +382,14 @@ export function useTracking(options: UseTrackingOptions) {
         // is drained onto the tracker by the metrics tick.
         frame.dispose();
         droppedFrames.value += 1;
+        droppedBusy.value += 1;
       }
     },
   });
 
-  // NF7 runs on Reanimated's UI runtime, which does unpack imported worklets.
+  // NF7 dropout grace and F9 smoothing both run on Reanimated's UI runtime,
+  // which — unlike the async runner's runtime — does unpack imported worklets.
+  // Order matches the PWA: detect, then grace, then smooth.
   useAnimatedReaction(
     () => latestRaw.value,
     raw => {
@@ -197,7 +400,10 @@ export function useTracking(options: UseTrackingOptions) {
       }
       const graced = applyDropoutGrace(graceState.value, raw);
       graceState.value = graced.state;
-      latest.value = graced.result;
+
+      const smoothed = applySmoothing(smoothState.value, graced.result, smoothingConfig.value);
+      smoothState.value = smoothed.state;
+      latest.value = smoothed.result;
     },
   );
 
@@ -211,9 +417,26 @@ export function useTracking(options: UseTrackingOptions) {
     tracker.start();
     tracker.setModelLoadTime(detector.modelLoadTimeMs);
     tracker.setGpuDelegateActive(detector.gpuDelegateActive);
+    tracker.setRunConditions({
+      // Landmarks and the 2D filters are drawn by Skia; the 3D crown uses
+      // three.js on WebGPU. Skia is the one every session uses.
+      renderBackend: 'skia',
+      inferenceThreading: 'async-runner',
+      // F9/F15 — both move the numbers, so both are submitted with them.
+      smoothingEnabled: options.smoothingEnabled,
+      dynamicInferenceEnabled: options.dynamicInferenceEnabled,
+    });
     graceState.value = emptyGraceState();
+    smoothState.value = emptySmoothingState();
     droppedFrames.value = 0;
-    smoother.reset();
+    trackingValid.value = false;
+    lostAtMs.value = 0;
+    consecutiveLoss.value = 0;
+    droppedGovernor.value = 0;
+    droppedBusy.value = 0;
+    frameSkipSum.value = 0;
+    frameSkipFrames.value = 0;
+    frameSkipMax.value = 0;
     governor.reset();
     frameCounter.value = 0;
     frameSkip.value = 1;
@@ -223,14 +446,24 @@ export function useTracking(options: UseTrackingOptions) {
   }, [
     detector,
     options.mode,
+    options.smoothingEnabled,
+    options.dynamicInferenceEnabled,
     tracker,
-    smoother,
     governor,
     frameCounter,
     frameSkip,
     running,
     graceState,
+    smoothState,
+    trackingValid,
+    lostAtMs,
+    consecutiveLoss,
     droppedFrames,
+    droppedGovernor,
+    droppedBusy,
+    frameSkipSum,
+    frameSkipFrames,
+    frameSkipMax,
     stats,
   ]);
 
@@ -244,12 +477,12 @@ export function useTracking(options: UseTrackingOptions) {
       // Releasing a detector that never configured is not an error.
     }
     graceState.value = emptyGraceState();
-    smoother.reset();
+    smoothState.value = emptySmoothingState();
     governor.reset();
     latest.value = null;
     setMetrics(null);
     return final;
-  }, [detector, tracker, smoother, governor, latest, running, graceState]);
+  }, [detector, tracker, governor, latest, running, graceState, smoothState]);
 
   /**
    * Begin a new measurement window without interrupting the camera. Used on a
@@ -257,9 +490,9 @@ export function useTracking(options: UseTrackingOptions) {
    */
   const resetSession = useCallback(() => {
     tracker.reset();
-    smoother.reset();
+    smoothState.value = emptySmoothingState();
     setMetrics(tracker.getMetrics(getNativeMetrics()));
-  }, [tracker, smoother]);
+  }, [tracker, smoothState]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -272,12 +505,37 @@ export function useTracking(options: UseTrackingOptions) {
         tracker.recordBatch(batch);
         stats.value = {...emptyStats(), lastAtMs: batch.lastAtMs};
       }
-      // Drain the worklet's dropped-frame counter onto the tracker.
-      if (droppedFrames.value > 0) {
-        for (let i = 0; i < droppedFrames.value; i++) {
-          tracker.recordDroppedFrame();
+      // Drain the worklet's dropped-frame counters onto the tracker, by cause.
+      if (droppedGovernor.value > 0) {
+        tracker.recordDroppedFrame('governor', droppedGovernor.value);
+        droppedGovernor.value = 0;
+      }
+      if (droppedBusy.value > 0) {
+        tracker.recordDroppedFrame('busy', droppedBusy.value);
+        droppedBusy.value = 0;
+      }
+      droppedFrames.value = 0;
+      // Drain the F15 skip samples.
+      if (frameSkipFrames.value > 0) {
+        tracker.recordFrameSkipBatch(
+          frameSkipSum.value,
+          frameSkipFrames.value,
+          frameSkipMax.value,
+        );
+        frameSkipSum.value = 0;
+        frameSkipFrames.value = 0;
+        frameSkipMax.value = 0;
+      }
+      // Drain the worklet's detection-failure counter onto the tracker.
+      if (detectErrors.value > 0) {
+        for (let i = 0; i < detectErrors.value; i++) {
+          tracker.recordError();
         }
-        droppedFrames.value = 0;
+        detectErrors.value = 0;
+      }
+      const size = frameSize.value;
+      if (size.width > 0) {
+        tracker.setRunConditions({frameWidth: size.width, frameHeight: size.height});
       }
       const snapshot = tracker.getMetrics(getNativeMetrics());
       setMetrics(snapshot);
@@ -289,7 +547,21 @@ export function useTracking(options: UseTrackingOptions) {
       }
     }, METRICS_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [isRunning, tracker, governor, frameSkip, droppedFrames, stats]);
+  }, [
+    isRunning,
+    tracker,
+    governor,
+    frameSkip,
+    droppedFrames,
+    droppedGovernor,
+    droppedBusy,
+    frameSkipSum,
+    frameSkipFrames,
+    frameSkipMax,
+    detectErrors,
+    stats,
+    frameSize,
+  ]);
 
   return {
     isRunning,
