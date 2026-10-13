@@ -442,6 +442,10 @@ export function useTracking(options: UseTrackingOptions) {
       // F9/F15 — both move the numbers, so both are submitted with them.
       smoothingEnabled: options.smoothingEnabled,
       dynamicInferenceEnabled: options.dynamicInferenceEnabled,
+      // The delegate *request*. `gpuDelegateActive` records what the engine
+      // reported building, which is unreliable on every arm, so it cannot
+      // identify a run made with the delegate off.
+      gpuDelegateEnabled: options.gpuDelegateEnabled,
     });
     graceState.value = emptyGraceState();
     smoothState.value = emptySmoothingState();

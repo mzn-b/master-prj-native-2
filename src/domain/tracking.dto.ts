@@ -203,6 +203,16 @@ export type PerformanceMetricsDTO = {
     // when false. Opposite findings, identical column.
     smoothingEnabled?: boolean;
     dynamicInferenceEnabled?: boolean;
+    //
+    // `gpuDelegateEnabled` is the delegate switch *position*, and it exists
+    // because `gpuDelegateActive` above cannot stand in for it. That one reports
+    // what the engine said it built, it has never correlated with performance,
+    // and it is unreliable on all four arms — so a session deliberately run with
+    // the delegate off is indistinguishable from a normal one without this.
+    // Matched on/off pairs are the decisive test of whether the delegate does
+    // anything, and they are only identifiable in the data if the request is
+    // recorded. Added 2026-10-13.
+    gpuDelegateEnabled?: boolean;
 
     // ── Startup (NF3) ────────────────────────────────────────────────────────
     // modelLoadTimeMs starts after the app is already running, which hides the

@@ -158,6 +158,7 @@ export class PerformanceTracker {
     renderBackend?: string;
     inferenceThreading?: string;
     smoothingEnabled?: boolean;
+    gpuDelegateEnabled?: boolean;
     dynamicInferenceEnabled?: boolean;
   } = {};
 
@@ -239,6 +240,7 @@ export class PerformanceTracker {
     renderBackend?: string;
     inferenceThreading?: string;
     smoothingEnabled?: boolean;
+    gpuDelegateEnabled?: boolean;
     dynamicInferenceEnabled?: boolean;
   }): void {
     this.runConditions = {...this.runConditions, ...conditions};
@@ -561,6 +563,7 @@ export class PerformanceTracker {
       inferenceThreading: this.runConditions.inferenceThreading,
       smoothingEnabled: this.runConditions.smoothingEnabled,
       dynamicInferenceEnabled: this.runConditions.dynamicInferenceEnabled,
+      gpuDelegateEnabled: this.runConditions.gpuDelegateEnabled,
       timeToFirstDetectionMs:
         this.firstDetectionAtMs !== undefined
           ? r(this.firstDetectionAtMs - this.startTime, 1)
