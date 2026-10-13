@@ -101,6 +101,23 @@ export interface UseTrackingOptions {
   mode: TrackingMode;
   smoothingEnabled: boolean;
   dynamicInferenceEnabled: boolean;
+  /**
+   * Whether to request the MediaPipe GPU delegate.
+   *
+   * Exposed so the delegate can be tested rather than assumed.
+   * `gpuDelegateActive` reports that the delegate was *requested and built*,
+   * not that inference ran on the GPU, and it has never correlated with
+   * performance in any measurement — so it cannot be cited as evidence. The
+   * decisive test is matched pairs with the delegate forced off.
+   *
+   * It matters more since 2026-10-13, when Android native measured ~1.6x
+   * slower than its own PWA on the same device at the same resolution. If the
+   * delegate was never engaging, that is an implementation defect rather than
+   * a finding about native versus web.
+   *
+   * Read at `configure()` time, so it only takes effect on the next start.
+   */
+  gpuDelegateEnabled: boolean;
 }
 
 /**
@@ -412,7 +429,7 @@ export function useTracking(options: UseTrackingOptions) {
       mode: options.mode,
       maxFaces: 1,
       maxHands: 2,
-      useGpu: true,
+      useGpu: options.gpuDelegateEnabled,
     });
     tracker.start();
     tracker.setModelLoadTime(detector.modelLoadTimeMs);
@@ -448,6 +465,7 @@ export function useTracking(options: UseTrackingOptions) {
     options.mode,
     options.smoothingEnabled,
     options.dynamicInferenceEnabled,
+    options.gpuDelegateEnabled,
     tracker,
     governor,
     frameCounter,

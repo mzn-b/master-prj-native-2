@@ -49,6 +49,16 @@ export function CameraScreen(): React.JSX.Element {
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(DEFAULT_ACTIVE_FILTERS);
   const [smoothingEnabled, setSmoothingEnabled] = useState(true);
   const [dynamicInferenceEnabled, setDynamicInferenceEnabled] = useState(true);
+  /**
+   * Requests the MediaPipe GPU delegate. Default on, matching how every
+   * session so far was recorded.
+   *
+   * Exposed so the delegate can be tested rather than assumed: the
+   * gpuDelegateActive column says the delegate was requested and built, not
+   * that inference ran on the GPU. Toggle it off and run the same condition
+   * again — if nothing moves, the delegate was never doing anything.
+   */
+  const [gpuDelegateEnabled, setGpuDelegateEnabled] = useState(true);
   const [showPerformance, setShowPerformance] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -63,6 +73,7 @@ export function CameraScreen(): React.JSX.Element {
     mode: effectiveMode,
     smoothingEnabled,
     dynamicInferenceEnabled,
+    gpuDelegateEnabled,
   });
   const {isRunning, latest, frameSize, metrics, currentFrameSkip, frameOutput} = tracking;
 
@@ -271,6 +282,7 @@ export function CameraScreen(): React.JSX.Element {
       const setters: Record<string, (next: boolean) => void> = {
         smoothingEnabled: setSmoothingEnabled,
         dynamicInferenceEnabled: setDynamicInferenceEnabled,
+        gpuDelegateEnabled: setGpuDelegateEnabled,
         showPerformance: setShowPerformance,
         showDebug: setShowDebug,
       };
@@ -404,6 +416,8 @@ export function CameraScreen(): React.JSX.Element {
         <SettingsSheet
           smoothingEnabled={smoothingEnabled}
           dynamicInferenceEnabled={dynamicInferenceEnabled}
+          gpuDelegateEnabled={gpuDelegateEnabled}
+          settingsLocked={isRunning}
           showPerformance={showPerformance}
           showDebug={showDebug}
           onChange={handleSetting}
