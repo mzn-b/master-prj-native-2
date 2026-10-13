@@ -139,9 +139,13 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     // Camera frames arrive rotated (90/270 on a phone held upright). MediaPipe
     // detects on the image as given, so without this the face is sideways and
     // nothing is found at all.
-    val rotation = nativeFrame.image.imageInfo.rotationDegrees
+    //
+    // Rotating here was measured as a candidate for the Android/iOS gap and
+    // excluded: a paired within-session comparison (n=45 per arm, alternating
+    // the rotation every frame so thermal state and scheduling were shared)
+    // put it at +1.1 ms of a 65 ms gap. See THESIS-FINDINGS.md 3.21.
     val options = ImageProcessingOptions.builder()
-      .setRotationDegrees(rotation)
+      .setRotationDegrees(nativeFrame.image.imageInfo.rotationDegrees)
       .build()
 
     val faceResult = if (wantFace) engine.faceLandmarker?.detectForVideo(mpImage, options, ts) else null
