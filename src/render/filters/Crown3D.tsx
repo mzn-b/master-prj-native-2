@@ -149,6 +149,10 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
     }
     let frame = 0;
     let disposed = false;
+    // Held so the cleanup below can release them. They are created inside the
+    // async init, which the cleanup cannot see into otherwise.
+    let activeRenderer: THREE.WebGPURenderer | undefined;
+    let activeScene: THREE.Scene | undefined;
 
     const waitForLayout = () => {
       if (disposed) {
@@ -187,6 +191,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       const bytes = decodeCrownModel();
 
       const scene = new THREE.Scene();
+      activeScene = scene;
       // Orthographic in view pixels: landmark projection already gives us
       // screen coordinates, so the crown can be positioned directly.
       const camera = new THREE.OrthographicCamera(0, width, 0, height, -1000, 1000);
@@ -240,6 +245,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
         antialias: true,
         alpha: true,
       });
+      activeRenderer = renderer;
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 2.2;
@@ -345,6 +351,38 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
     return () => {
       disposed = true;
       cancelAnimationFrame(frame);
+
+      // Release the GPU resources. FilterLayer unmounts whenever a session
+      // stops, so without this every run abandons a whole WebGPU renderer, a
+      // scene, the parsed model and its decoded textures.
+      //
+      // Measured before this existed: Android native grew ~41 MB net per
+      // session and reached 1600 MB over 30 runs, while its own PWA — which
+      // does call dispose() when the overlay tears down — stayed flat. iOS
+      // leaked the same way, more slowly. It also means `memoryUsageMB` was
+      // reporting an accumulating leak rather than the app's working set.
+      activeScene?.traverse(object => {
+        const mesh = object as THREE.Mesh;
+        mesh.geometry?.dispose?.();
+        const material = mesh.material;
+        for (const entry of Array.isArray(material) ? material : [material]) {
+          if (!entry) {
+            continue;
+          }
+          // Textures hold the decoded GLB images and are the bulk of it.
+          for (const value of Object.values(entry as unknown as Record<string, unknown>)) {
+            const texture = value as THREE.Texture | null;
+            if (texture?.isTexture) {
+              texture.dispose();
+            }
+          }
+          entry.dispose?.();
+        }
+      });
+      activeScene?.clear();
+      activeRenderer?.dispose?.();
+      activeRenderer = undefined;
+      activeScene = undefined;
     };
     // geometry is deliberately absent: see geometryRef above. Including it
     // tore down the render loop the moment the camera reported its frame size.

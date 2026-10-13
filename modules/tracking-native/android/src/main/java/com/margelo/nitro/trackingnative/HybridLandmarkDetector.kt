@@ -1,8 +1,11 @@
 package com.margelo.nitro.trackingnative
 
 import android.graphics.Bitmap
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageProxy
 import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.framework.image.MPImage
+import com.google.mediapipe.framework.image.MediaImageBuilder
 import com.google.mediapipe.tasks.vision.core.ImageProcessingOptions
 // `public` is a Kotlin keyword, so this package segment needs backticks.
 import com.margelo.nitro.camera.`public`.NativeFrame
@@ -71,6 +74,9 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     }
   }
 
+  // ImageProxy.getImage() is annotated experimental in CameraX. It is the only
+  // way to reach the buffer without copying it, which is the whole point here.
+  @ExperimentalGetImage
   override fun detect(frame: HybridFrameSpec, timestampMs: Double): RawDetection {
     return synchronized(lock) {
     // A detection that arrives after release() must not resurrect the engine.
@@ -99,9 +105,37 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     val started = System.nanoTime()
 
     val nativeFrame = frame as? NativeFrame ?: return empty(timestampMs)
-    val bitmap = bitmapOf(nativeFrame.image) ?: return empty(timestampMs)
 
-    val mpImage = BitmapImageBuilder(bitmap).build()
+    // Wrap the camera buffer rather than converting it.
+    //
+    // This used to call ImageProxy.toBitmap(), a software YUV_420_888 to
+    // ARGB_8888 conversion allocating a full frame (~3.7 MB at 1280x720) on
+    // every frame — work iOS has never done, because MPImage(sampleBuffer:)
+    // wraps the CVPixelBuffer directly. The two arms were being asked to do
+    // materially different work and the difference was invisible in every
+    // recorded number, since both spans deliberately include conversion.
+    //
+    // MediaImageBuilder is the Android equivalent: it wraps the underlying
+    // android.media.Image with no copy. The bitmap path is kept as a fallback
+    // for any frame whose format it rejects.
+    //
+    // Ownership: MediaImageContainer.close() closes the wrapped Image, which
+    // VisionCamera owns and disposes in the worklet's finally block — so the
+    // MPImage must NOT be closed on that path. The bitmap path must be, since
+    // BitmapImageContainer.close() is what recycles the bitmap.
+    val mediaImage = try {
+      nativeFrame.image.image
+    } catch (error: Throwable) {
+      null
+    }
+    var fallbackBitmap: Bitmap? = null
+    val mpImage: MPImage = if (mediaImage != null) {
+      MediaImageBuilder(mediaImage).build()
+    } else {
+      val bitmap = bitmapOf(nativeFrame.image) ?: return empty(timestampMs)
+      fallbackBitmap = bitmap
+      BitmapImageBuilder(bitmap).build()
+    }
     // Camera frames arrive rotated (90/270 on a phone held upright). MediaPipe
     // detects on the image as given, so without this the face is sideways and
     // nothing is found at all.
@@ -165,7 +199,10 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
       )
     }
 
-    mpImage.close()
+    // Only the bitmap path owns what it wraps; see the note above.
+    if (fallbackBitmap != null) {
+      mpImage.close()
+    }
 
     val inferenceMs = (System.nanoTime() - started) / 1_000_000.0
 
@@ -200,6 +237,7 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
   }
 
   /** CameraX converts the frame's pixel format for us (androidx.camera.core 1.3+). */
+  /** Fallback only — see the note in detect(). */
   private fun bitmapOf(image: ImageProxy): Bitmap? = try {
     image.toBitmap()
   } catch (error: Throwable) {
