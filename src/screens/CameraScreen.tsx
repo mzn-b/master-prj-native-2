@@ -21,7 +21,7 @@ import {LandmarkOverlay} from '../render/LandmarkOverlay';
 import type {Rotation, ViewGeometry} from '../render/coordinates';
 import {FilterLayer} from '../render/filters/FilterLayer';
 import {prewarmCrownModel} from '../render/filters/Crown3D';
-import {APP_VERSION} from '../config/buildInfo';
+import {APP_VERSION, SURVEY_BUILD} from '../config/buildInfo';
 import {
   DEFAULT_ACTIVE_FILTERS,
   drawnRenderBackend,
@@ -386,7 +386,7 @@ export function CameraScreen(): React.JSX.Element {
           the one running. Reading it off the screen settles that in a second
           instead of by inference.
         */}
-        <Text style={styles.buildStamp}>{`Build ${APP_VERSION}`}</Text>
+        <Text style={styles.buildStamp}>{`Build ${APP_VERSION}${SURVEY_BUILD ? ' (Studie)' : ''}`}</Text>
         {capabilities.warnings.map(warning => (
           <Text key={warning} style={styles.warning}>
             {warning}

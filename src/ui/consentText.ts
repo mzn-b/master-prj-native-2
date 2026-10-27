@@ -18,11 +18,14 @@
  * not aspirational. Both apps were checked for every image egress and
  * persistence path (`toDataURL`, `toBlob`, `FormData`, `getImageData`,
  * `putImageData`, `localStorage`, `IndexedDB`, `writeFile`, `AsyncStorage`,
- * `FileSystem`) with no hits; the only network call either app makes is a JSON
- * body of numeric metrics. If that ever changes, this text must change with it.
+ * `FileSystem`) with no hits. The only data either app sends is the session
+ * record: the measurements, detection summaries, settings and device information
+ * listed in the second section, checked field by field against what the backend
+ * stores (version 1.1; 1.0 described only part of it). If what is sent ever
+ * changes, this text must change with it.
  */
 
-export const CONSENT_VERSION = "1.0";
+export const CONSENT_VERSION = "1.1";
 
 export const CONSENT_TITLE = "Einwilligung zur Teilnahme";
 
@@ -47,12 +50,23 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
     {
         heading: "Welche Daten werden übertragen?",
         body:
-            "Übertragen werden ausschließlich numerische Messwerte: Bildrate, " +
-            "Inferenz- und Verarbeitungszeit, Anzahl verarbeiteter und verworfener " +
-            "Bilder, Speicherverbrauch, Akkustand, Thermalzustand, Gerätemodell, " +
-            "Betriebssystem- und App-Version sowie ein Zeitstempel. " +
-            "Es werden keine Bild-, Video- oder Tondaten, keine Namen und keine " +
-            "Kontaktdaten übertragen.",
+            "Übertragen werden ausschließlich Messwerte und technische Angaben: " +
+            "Messwerte zur Leistung der App (etwa Bildrate, Inferenz-, " +
+            "Verarbeitungs- und Darstellungszeiten, Anzahl verarbeiteter und " +
+            "verworfener Bilder, Lade- und Startzeiten, Speicher- und " +
+            "Prozessorauslastung, Akkustand und Ladezustand, Thermalzustand); über " +
+            "die Sitzung gemittelte Kennzahlen der Gesichts- und Handerkennung " +
+            "(etwa wie viele Gesichter und Hände erkannt wurden, wie oft die " +
+            "Erkennung abriss, wie ruhig die erkannten Punkte lagen, wie stark " +
+            "erkannte Gesichtsausdrücke im Mittel ausgeprägt waren und wie sicher " +
+            "Handgesten erkannt wurden); die gewählten Einstellungen und Filter; " +
+            "technische Angaben zum Gerät (Gerätemodell, Betriebssystem- und " +
+            "App-Version, Anzahl der Prozessorkerne, Arbeitsspeicher, Name des " +
+            "Grafikprozessors, Bildschirmgröße und Kameraauflösung, in der Web-App " +
+            "außerdem die Kennung des Browsers sowie Art und Geschwindigkeit der " +
+            "Netzwerkverbindung); dazu ein Zeitstempel und eine zufällig erzeugte " +
+            "Sitzungskennung. Es werden keine Bild-, Video- oder Tondaten, keine " +
+            "Namen und keine Kontaktdaten übertragen.",
     },
     {
         heading: "Wozu werden die Daten verwendet?",

@@ -1,5 +1,6 @@
 import React from 'react';
 import {Linking, StyleSheet, Switch, Text, TouchableOpacity, View} from 'react-native';
+import {SURVEY_BUILD} from '../config/buildInfo';
 import {UX_SURVEY_URL} from '../config/survey';
 
 export interface SettingsSheetProps {
@@ -80,16 +81,23 @@ export function SettingsSheet({
         disabled={settingsLocked}
         onValueChange={next => onChange('gpuDelegateEnabled', next)}
       />
-      <Toggle
-        label="Performance-HUD"
-        value={showPerformance}
-        onValueChange={next => onChange('showPerformance', next)}
-      />
-      <Toggle
-        label="F14: Debug-HUD"
-        value={showDebug}
-        onValueChange={next => onChange('showDebug', next)}
-      />
+      {/* Hidden in the survey build: the HUD readouts differ between the apps
+          (memory, CPU and thermal state are blank in the PWA), which would tell
+          a participant which implementation this is. */}
+      {!SURVEY_BUILD && (
+        <Toggle
+          label="Performance-HUD"
+          value={showPerformance}
+          onValueChange={next => onChange('showPerformance', next)}
+        />
+      )}
+      {!SURVEY_BUILD && (
+        <Toggle
+          label="F14: Debug-HUD"
+          value={showDebug}
+          onValueChange={next => onChange('showDebug', next)}
+        />
+      )}
       {surveyUrl && (
         <TouchableOpacity
           accessibilityRole="button"
