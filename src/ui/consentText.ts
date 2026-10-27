@@ -119,7 +119,7 @@ export const CONSENT_CONTROLLER: ConsentSection = {
     body:
         "Mazen El-shaarawi\n" +
         "mazen.el-shaarawi@stud.hcw.ac.at\n" +
-        "FH Campus Wien, Masterstudiengang Software Design & Engineering\n" +
+        "Hochschule Campus Wien, Masterstudiengang Software Design & Engineering\n" +
         "Betreuung: FH-Prof.in Mag.a Dr.in Sigrid Schefer-Wenzl, MSc BSc; FH-Prof. DI Dr. Igor Miladinovic",
 };
 
