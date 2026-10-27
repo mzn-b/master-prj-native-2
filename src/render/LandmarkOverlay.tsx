@@ -13,8 +13,17 @@ import {
 } from '../native/landmarkFormat';
 import {projectNormalized, type ViewGeometry} from './coordinates';
 
-const FACE_DOT_RADIUS = 1.4;
+/**
+ * Dot size and colour, matched to the PWA's DEFAULT_LANDMARK_CONFIG
+ * (src/rendering/types.ts there): its `size` is a diameter in logical pixels,
+ * 4 for the face and 6 for a hand, and both are filled. The landmark view is
+ * the study's baseline and is shown to participants, so both apps draw the
+ * same dots.
+ */
+const FACE_DOT_RADIUS = 2;
 const HAND_DOT_RADIUS = 3;
+const FACE_DOT_COLOR = 'rgba(0, 255, 128, 0.8)';
+const HAND_DOT_COLOR = 'rgba(0, 204, 255, 0.9)';
 
 export interface LandmarkOverlayProps {
   latest: SharedValue<RawDetection | null>;
@@ -80,8 +89,8 @@ export function LandmarkOverlay({
 
   return (
     <Canvas style={style} pointerEvents="none">
-      <Path path={facePath} color="#4ade80" style="fill" />
-      <Path path={handPath} color="#60a5fa" style="stroke" strokeWidth={2} />
+      <Path path={facePath} color={FACE_DOT_COLOR} style="fill" />
+      <Path path={handPath} color={HAND_DOT_COLOR} style="fill" />
     </Canvas>
   );
 }
