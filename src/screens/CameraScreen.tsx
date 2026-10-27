@@ -24,6 +24,7 @@ import {prewarmCrownModel} from '../render/filters/Crown3D';
 import {APP_VERSION} from '../config/buildInfo';
 import {
   DEFAULT_ACTIVE_FILTERS,
+  drawnRenderBackend,
   submittedFilters,
   type ActiveFilters,
   type AppMode,
@@ -191,7 +192,19 @@ export function CameraScreen(): React.JSX.Element {
       }
       setIsUploading(true);
       try {
-        await submitTrackingSession(effectiveMode, sessionMetrics, filters);
+        // What drew this session, resolved at submission like the filters
+        // themselves. The crown has no WebGL path here: react-native-webgpu
+        // supplies the GPUDevice its renderer is built on.
+        const renderBackend = drawnRenderBackend(
+          appModeRef.current,
+          activeFiltersRef.current,
+          {landmarks: 'skia', flat: 'skia', crown: 'webgpu'},
+        );
+        await submitTrackingSession(
+          effectiveMode,
+          {...sessionMetrics, renderBackend},
+          filters,
+        );
       } finally {
         setIsUploading(false);
       }

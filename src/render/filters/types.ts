@@ -50,3 +50,36 @@ export function submittedFilters(
   }
   return FILTER_IDS.filter(id => active[id])
 }
+
+/**
+ * The drawing paths behind a session, for the `renderBackend` run condition.
+ *
+ * Derived from what was drawn, like submittedFilters(), because the path
+ * differs by view and by filter: the landmark renderer draws the dots, the
+ * platform's 2D path draws the glasses and the sparkles, and three.js draws the
+ * crown. Recording only the landmark renderer labelled every filter session
+ * with a renderer that drew nothing in it, and never recorded whether the
+ * crown ran on WebGPU or on three's WebGL fallback.
+ *
+ * `paths` names the platform's own: its landmark renderer, its 2D path and
+ * the backend the crown actually used. A filter view with nothing selected
+ * draws nothing and reports 'none'; a crown that had not finished
+ * initialising when the session was submitted reports 'pending'.
+ */
+export function drawnRenderBackend(
+  appMode: AppMode,
+  active: ActiveFilters,
+  paths: { landmarks?: string; flat: string; crown?: string },
+): string | undefined {
+  if (appMode !== 'filters') {
+    return paths.landmarks
+  }
+  const drawn: string[] = []
+  if (active.glasses || active.sparkles) {
+    drawn.push(paths.flat)
+  }
+  if (active.crown) {
+    drawn.push(paths.crown ?? 'pending')
+  }
+  return drawn.length > 0 ? drawn.join('+') : 'none'
+}

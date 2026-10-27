@@ -435,8 +435,10 @@ export function useTracking(options: UseTrackingOptions) {
     tracker.setModelLoadTime(detector.modelLoadTimeMs);
     tracker.setGpuDelegateActive(detector.gpuDelegateActive);
     tracker.setRunConditions({
-      // Landmarks and the 2D filters are drawn by Skia; the 3D crown uses
-      // three.js on WebGPU. Skia is the one every session uses.
+      // Provisional. Landmarks and the 2D filters are drawn by Skia and the
+      // crown by three.js on WebGPU, so which applies depends on what the
+      // session draws; CameraScreen replaces this at submission with
+      // drawnRenderBackend().
       renderBackend: 'skia',
       inferenceThreading: 'async-runner',
       // F9/F15 — both move the numbers, so both are submitted with them.
