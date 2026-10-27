@@ -13,16 +13,6 @@ import {
 } from '../native/landmarkFormat';
 import {projectNormalized, type ViewGeometry} from './coordinates';
 
-/** Finger chains of the MediaPipe hand skeleton, drawn as connecting lines. */
-const HAND_CONNECTIONS: ReadonlyArray<readonly number[]> = [
-  [0, 1, 2, 3, 4],
-  [0, 5, 6, 7, 8],
-  [0, 9, 10, 11, 12],
-  [0, 13, 14, 15, 16],
-  [0, 17, 18, 19, 20],
-  [5, 9, 13, 17],
-];
-
 const FACE_DOT_RADIUS = 1.4;
 const HAND_DOT_RADIUS = 3;
 
@@ -72,24 +62,15 @@ export function LandmarkOverlay({
       return path;
     }
     const values = new Float32Array(detection.landmarks);
+    // Points only, no skeleton between them. The PWA draws none, and the
+    // landmark view is the study's baseline condition, so drawing the finger
+    // chains here made the native baseline draw more than the web one (NF4).
     for (let h = 0; h < detection.handCount; h++) {
       const base = handOffset(detection.faceCount, h);
-      const at = (index: number) => {
-        const offset = base + index * VALUES_PER_POINT;
-        return projectNormalized(values[offset], values[offset + 1], geometry);
-      };
-
       for (let i = 0; i < HAND_LANDMARK_COUNT; i++) {
-        const point = at(i);
+        const at = base + i * VALUES_PER_POINT;
+        const point = projectNormalized(values[at], values[at + 1], geometry);
         path.addCircle(point.x, point.y, HAND_DOT_RADIUS);
-      }
-      for (const chain of HAND_CONNECTIONS) {
-        const start = at(chain[0]);
-        path.moveTo(start.x, start.y);
-        for (let i = 1; i < chain.length; i++) {
-          const next = at(chain[i]);
-          path.lineTo(next.x, next.y);
-        }
       }
     }
     return path;
