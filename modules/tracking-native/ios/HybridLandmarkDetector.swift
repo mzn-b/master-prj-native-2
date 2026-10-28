@@ -28,7 +28,7 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
   private var maxFaces = 1
   private var maxHands = 2
   private var useGpu = true
-  private var lastTimestampMs: Double = -1
+  private var lastTimestampMs = -1
 
   var modelLoadTimeMs: Double { engine.modelLoadTimeMs }
   var gpuDelegateActive: Bool { engine.gpuDelegateActive }
@@ -74,11 +74,15 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
       needsConfigure = false
     }
 
-    // MediaPipe's VIDEO mode requires strictly increasing timestamps.
-    guard timestampMs > lastTimestampMs else {
+    // MediaPipe's VIDEO mode requires strictly increasing timestamps. Compared
+    // in whole milliseconds, the unit MediaPipe receives, as on Android: two
+    // frames inside the same millisecond would pass a fractional comparison and
+    // then make MediaPipe throw.
+    let ts = Int(timestampMs)
+    guard ts > lastTimestampMs else {
       return Self.empty(timestampMs: timestampMs)
     }
-    lastTimestampMs = timestampMs
+    lastTimestampMs = ts
 
     // NF4 — inferenceTimeMs is measured end-to-end: frame in hand -> landmarks
     // ready, including MPImage construction and the packing loop below. Timing
@@ -115,9 +119,19 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
       return Self.empty(timestampMs: timestampMs)
     }
 
-    let ts = Int(timestampMs)
-    let faceResult = wantFace ? try? engine.faceLandmarker?.detect(videoFrame: image, timestampInMilliseconds: ts) : nil
-    let handResult = wantHand ? try? engine.gestureRecognizer?.recognize(videoFrame: image, timestampInMilliseconds: ts) : nil
+    // A detection error is thrown, not turned into an empty result: it reaches
+    // the worklet's catch in useTracking.ts and is counted in errorCount, as on
+    // Android, where detectForVideo/recognizeForVideo throw straight through.
+    // `try?` here made every iOS detection error look like a frame with
+    // nothing in it, so errorCount was structurally zero on this arm.
+    var faceResult: FaceLandmarkerResult?
+    if wantFace {
+      faceResult = try engine.faceLandmarker?.detect(videoFrame: image, timestampInMilliseconds: ts)
+    }
+    var handResult: GestureRecognizerResult?
+    if wantHand {
+      handResult = try engine.gestureRecognizer?.recognize(videoFrame: image, timestampInMilliseconds: ts)
+    }
 
     let faces = faceResult?.faceLandmarks ?? []
     let hands = handResult?.landmarks ?? []
