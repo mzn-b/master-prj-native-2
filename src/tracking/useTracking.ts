@@ -152,6 +152,8 @@ export function useTracking(options: UseTrackingOptions) {
    */
   const boxedDetector = useMemo(() => NitroModules.box(detector), [detector]);
   const tracker = useRef(new PerformanceTracker()).current;
+  /** Whether this session's model load time and delegate state are recorded. */
+  const engineStateRecorded = useRef(false);
   const governor = useRef(
     new DynamicInferenceController(DEFAULT_DYNAMIC_INFERENCE_CONFIG),
   ).current;
@@ -432,8 +434,11 @@ export function useTracking(options: UseTrackingOptions) {
       useGpu: options.gpuDelegateEnabled,
     });
     tracker.start();
-    tracker.setModelLoadTime(detector.modelLoadTimeMs);
-    tracker.setGpuDelegateActive(detector.gpuDelegateActive);
+    // The models are built lazily inside the first detect(), so their load
+    // time and the delegate actually built are only known once a frame has
+    // been processed. drainPending() records both after the first batch;
+    // reading them here returned zero or the previous session's values.
+    engineStateRecorded.current = false;
     tracker.setRunConditions({
       // Provisional. Landmarks and the 2D filters are drawn by Skia and the
       // crown by three.js on WebGPU, so which applies depends on what the
@@ -491,7 +496,73 @@ export function useTracking(options: UseTrackingOptions) {
     stats,
   ]);
 
+  /**
+   * Move everything the worklet has accumulated since the last drain onto the
+   * tracker. Called by the metrics tick and by stop(): without the call in
+   * stop(), up to one tick of frames, drops and detection errors was never
+   * recorded, while the session duration still counted that time (thesis
+   * audit, 2026-10-28).
+   */
+  const drainPending = useCallback(() => {
+    // Drain the worklet's measurements onto the tracker.
+    const batch = stats.value;
+    if (batch.frames > 0) {
+      tracker.recordBatch(batch);
+      stats.value = {...emptyStats(), lastAtMs: batch.lastAtMs};
+      if (!engineStateRecorded.current) {
+        tracker.setModelLoadTime(detector.modelLoadTimeMs);
+        tracker.setGpuDelegateActive(detector.gpuDelegateActive);
+        engineStateRecorded.current = true;
+      }
+    }
+    // Drain the worklet's dropped-frame counters onto the tracker, by cause.
+    if (droppedGovernor.value > 0) {
+      tracker.recordDroppedFrame('governor', droppedGovernor.value);
+      droppedGovernor.value = 0;
+    }
+    if (droppedBusy.value > 0) {
+      tracker.recordDroppedFrame('busy', droppedBusy.value);
+      droppedBusy.value = 0;
+    }
+    droppedFrames.value = 0;
+    // Drain the F15 skip samples.
+    if (frameSkipFrames.value > 0) {
+      tracker.recordFrameSkipBatch(
+        frameSkipSum.value,
+        frameSkipFrames.value,
+        frameSkipMax.value,
+      );
+      frameSkipSum.value = 0;
+      frameSkipFrames.value = 0;
+      frameSkipMax.value = 0;
+    }
+    // Drain the worklet's detection-failure counter onto the tracker.
+    if (detectErrors.value > 0) {
+      for (let i = 0; i < detectErrors.value; i++) {
+        tracker.recordError();
+      }
+      detectErrors.value = 0;
+    }
+    const size = frameSize.value;
+    if (size.width > 0) {
+      tracker.setRunConditions({frameWidth: size.width, frameHeight: size.height});
+    }
+  }, [
+    tracker,
+    detector,
+    stats,
+    droppedFrames,
+    droppedGovernor,
+    droppedBusy,
+    frameSkipSum,
+    frameSkipFrames,
+    frameSkipMax,
+    detectErrors,
+    frameSize,
+  ]);
+
   const stop = useCallback((): PerformanceMetricsDTO | undefined => {
+    drainPending();
     const final = tracker.getMetrics(getNativeMetrics());
     running.value = false;
     setIsRunning(false);
@@ -506,7 +577,7 @@ export function useTracking(options: UseTrackingOptions) {
     latest.value = null;
     setMetrics(null);
     return final;
-  }, [detector, tracker, governor, latest, running, graceState, smoothState]);
+  }, [detector, tracker, governor, latest, running, graceState, smoothState, drainPending]);
 
   /**
    * Begin a new measurement window without interrupting the camera. Used on a
@@ -523,44 +594,7 @@ export function useTracking(options: UseTrackingOptions) {
       return;
     }
     const id = setInterval(() => {
-      // Drain the worklet's measurements onto the tracker.
-      const batch = stats.value;
-      if (batch.frames > 0) {
-        tracker.recordBatch(batch);
-        stats.value = {...emptyStats(), lastAtMs: batch.lastAtMs};
-      }
-      // Drain the worklet's dropped-frame counters onto the tracker, by cause.
-      if (droppedGovernor.value > 0) {
-        tracker.recordDroppedFrame('governor', droppedGovernor.value);
-        droppedGovernor.value = 0;
-      }
-      if (droppedBusy.value > 0) {
-        tracker.recordDroppedFrame('busy', droppedBusy.value);
-        droppedBusy.value = 0;
-      }
-      droppedFrames.value = 0;
-      // Drain the F15 skip samples.
-      if (frameSkipFrames.value > 0) {
-        tracker.recordFrameSkipBatch(
-          frameSkipSum.value,
-          frameSkipFrames.value,
-          frameSkipMax.value,
-        );
-        frameSkipSum.value = 0;
-        frameSkipFrames.value = 0;
-        frameSkipMax.value = 0;
-      }
-      // Drain the worklet's detection-failure counter onto the tracker.
-      if (detectErrors.value > 0) {
-        for (let i = 0; i < detectErrors.value; i++) {
-          tracker.recordError();
-        }
-        detectErrors.value = 0;
-      }
-      const size = frameSize.value;
-      if (size.width > 0) {
-        tracker.setRunConditions({frameWidth: size.width, frameHeight: size.height});
-      }
+      drainPending();
       const snapshot = tracker.getMetrics(getNativeMetrics());
       setMetrics(snapshot);
       if (snapshot.avgInferenceTimeMs > 0) {
@@ -571,21 +605,7 @@ export function useTracking(options: UseTrackingOptions) {
       }
     }, METRICS_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [
-    isRunning,
-    tracker,
-    governor,
-    frameSkip,
-    droppedFrames,
-    droppedGovernor,
-    droppedBusy,
-    frameSkipSum,
-    frameSkipFrames,
-    frameSkipMax,
-    detectErrors,
-    stats,
-    frameSize,
-  ]);
+  }, [isRunning, tracker, governor, frameSkip, drainPending]);
 
   return {
     isRunning,
