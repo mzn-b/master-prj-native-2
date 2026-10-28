@@ -420,8 +420,10 @@ export function CameraScreen(): React.JSX.Element {
           ))}
         </View>
 
+        {/* The survey build offers no tracking-mode choice: every study run
+            tracks face and hand together (thesis §6.1.2), the default. */}
         {appMode === 'landmarks' ? (
-          <ModeSelector mode={mode} disabled={isRunning} onChange={setMode} />
+          !SURVEY_BUILD && <ModeSelector mode={mode} disabled={isRunning} onChange={setMode} />
         ) : (
           <FilterBar activeFilters={activeFilters} onToggle={handleFilterToggle} />
         )}

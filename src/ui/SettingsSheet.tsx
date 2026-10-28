@@ -49,6 +49,10 @@ function Toggle({
 /**
  * Settings that affect measurement. Both apps must be in the same state for a
  * comparison run — smoothing and dynamic inference in particular.
+ *
+ * The survey build shows none of them: participants hold the phone and the
+ * operator only selects the view and the filters, so every study run keeps the
+ * study settings (thesis §6.1.2), which are the defaults.
  */
 export function SettingsSheet({
   smoothingEnabled,
@@ -58,29 +62,39 @@ export function SettingsSheet({
   showDebug,
   settingsLocked = false,
   onChange,
-}: SettingsSheetProps): React.JSX.Element {
+}: SettingsSheetProps): React.JSX.Element | null {
   const surveyUrl = UX_SURVEY_URL
     ? `${UX_SURVEY_URL}${UX_SURVEY_URL.includes('?') ? '&' : '?'}platform=NATIVE`
     : null;
 
+  if (SURVEY_BUILD && !surveyUrl) {
+    return null;
+  }
+
   return (
     <View style={styles.card} testID="settings-sheet">
-      <Toggle
-        label="F9: Glättung (One Euro)"
-        value={smoothingEnabled}
-        onValueChange={next => onChange('smoothingEnabled', next)}
-      />
-      <Toggle
-        label="F15: Dynamische Inferenzrate"
-        value={dynamicInferenceEnabled}
-        onValueChange={next => onChange('dynamicInferenceEnabled', next)}
-      />
-      <Toggle
-        label="GPU-Delegate"
-        value={gpuDelegateEnabled}
-        disabled={settingsLocked}
-        onValueChange={next => onChange('gpuDelegateEnabled', next)}
-      />
+      {!SURVEY_BUILD && (
+        <Toggle
+          label="F9: Glättung (One Euro)"
+          value={smoothingEnabled}
+          onValueChange={next => onChange('smoothingEnabled', next)}
+        />
+      )}
+      {!SURVEY_BUILD && (
+        <Toggle
+          label="F15: Dynamische Inferenzrate"
+          value={dynamicInferenceEnabled}
+          onValueChange={next => onChange('dynamicInferenceEnabled', next)}
+        />
+      )}
+      {!SURVEY_BUILD && (
+        <Toggle
+          label="GPU-Delegate"
+          value={gpuDelegateEnabled}
+          disabled={settingsLocked}
+          onValueChange={next => onChange('gpuDelegateEnabled', next)}
+        />
+      )}
       {/* Hidden in the survey build: the HUD readouts differ between the apps
           (memory, CPU and thermal state are blank in the PWA), which would tell
           a participant which implementation this is. */}
