@@ -6,6 +6,7 @@ import * as THREE from 'three/webgpu';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {VALUES_PER_POINT, faceOffset, type RawDetection} from '../../native/landmarkFormat';
 import {projectNormalized, type ViewGeometry} from '../coordinates';
+import {createCrownView} from './crownView';
 import {applyGlbTextures, decodeGlbTextures} from './glbTextures';
 import {base64ToArrayBuffer} from './base64';
 
@@ -193,8 +194,11 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       const scene = new THREE.Scene();
       activeScene = scene;
       // Orthographic in view pixels: landmark projection already gives us
-      // screen coordinates, so the crown can be positioned directly.
-      const camera = new THREE.OrthographicCamera(0, width, 0, height, -1000, 1000);
+      // screen coordinates, so the crown is positioned directly under
+      // screenSpace, which carries the flip to three's y-up world (see
+      // crownView.ts for why the flip must not sit in the projection).
+      const {camera, screenSpace} = createCrownView(width, height);
+      scene.add(screenSpace);
 
       scene.add(new THREE.AmbientLight(0xffffff, 5.0));
       const front = new THREE.DirectionalLight(0xfffbe8, 6.0);
@@ -236,7 +240,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       const clipping = new THREE.ClippingGroup();
       clipping.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)];
       clipping.add(pivot);
-      scene.add(clipping);
+      screenSpace.add(clipping);
 
       const renderer = new THREE.WebGPURenderer({
         canvas: ref.current?.getNativeSurface() as never,
@@ -331,10 +335,11 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
             forehead.y + (upY / upLength) * widthPx * LIFT,
             0,
           );
-          // The orthographic camera is set up y-down to match screen coordinates
-          // (top = 0), which inverts the sense of a rotation about z relative to
-          // three's usual y-up convention — hence the roll is applied as-is
-          // rather than negated.
+          // screenSpace is y-down to match screen coordinates, which inverts
+          // the sense of a rotation about z relative to three's usual y-up
+          // convention — hence the roll is applied as-is rather than negated.
+          // On screen this is exactly the transform the earlier y-down
+          // projection produced.
           pivot.rotation.set(pitch, yaw, roll);
         } else {
           pivot.visible = false;
