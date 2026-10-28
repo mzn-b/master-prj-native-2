@@ -21,11 +21,12 @@
  * `FileSystem`) with no hits. The only data either app sends is the session
  * record: the measurements, detection summaries, settings and device information
  * listed in the second section, checked field by field against what the backend
- * stores (version 1.1; 1.0 described only part of it). If what is sent ever
- * changes, this text must change with it.
+ * stores (version 1.1; 1.0 described only part of it). Version 1.2 drops
+ * "randomly generated" from the session identifier: the PWA's embeds the
+ * device clock. If what is sent ever changes, this text must change with it.
  */
 
-export const CONSENT_VERSION = "1.1";
+export const CONSENT_VERSION = "1.2";
 
 export const CONSENT_TITLE = "Einwilligung zur Teilnahme";
 
@@ -64,7 +65,7 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
             "App-Version, Anzahl der Prozessorkerne, Arbeitsspeicher, Name des " +
             "Grafikprozessors, Bildschirmgröße und Kameraauflösung, in der Web-App " +
             "außerdem die Kennung des Browsers sowie Art und Geschwindigkeit der " +
-            "Netzwerkverbindung); dazu ein Zeitstempel und eine zufällig erzeugte " +
+            "Netzwerkverbindung); dazu ein Zeitstempel und eine " +
             "Sitzungskennung. Es werden keine Bild-, Video- oder Tondaten, keine " +
             "Namen und keine Kontaktdaten übertragen.",
     },
