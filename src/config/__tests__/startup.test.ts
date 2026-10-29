@@ -56,6 +56,27 @@ describe('appStartupMs', () => {
     expect(getAppStartupMs()).toBeGreaterThanOrEqual(0);
   });
 
+  it('reports a value for an iOS launch, which begins inactive', () => {
+    // iOS launches through UIApplicationStateInactive, which React Native
+    // reports as 'inactive'. Treating that as "not foregrounded" voided every
+    // iOS native startup time (sessions 24-26, 2026-10-29).
+    mockCurrentState = 'inactive';
+    const {markInteractive, getAppStartupMs} = require('../startup');
+    mockAppStateHandler?.('active');
+    markInteractive();
+    expect(getAppStartupMs()).toBeGreaterThanOrEqual(0);
+  });
+
+  it('still reports after an inactive spell that never reached the background', () => {
+    // A notification banner or Control Center makes an iOS app inactive while
+    // it stays on screen and keeps drawing frames.
+    const {markInteractive, getAppStartupMs} = require('../startup');
+    mockAppStateHandler?.('inactive');
+    mockAppStateHandler?.('active');
+    markInteractive();
+    expect(getAppStartupMs()).toBeGreaterThanOrEqual(0);
+  });
+
   it('reports nothing when the app did not start in the foreground', () => {
     mockCurrentState = 'background';
     const {markInteractive, getAppStartupMs} = require('../startup');

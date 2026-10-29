@@ -37,11 +37,17 @@ let interactiveAt: number | undefined;
  * altogether. Reporting nothing is correct where reporting 139 seconds is not —
  * the same rule the rest of the schema follows for metrics a platform cannot
  * supply.
+ *
+ * Only `background` voids the value, not `inactive`. iOS launches an app
+ * through UIApplicationStateInactive, which React Native reports as
+ * `inactive`, so requiring `active` from the first statement voided every
+ * iOS startup time (observed 2026-10-29, icon-launched). An inactive app is
+ * still on screen and still draws frames; a backgrounded one does not.
  */
-let foregroundThroughout = AppState.currentState === 'active';
+let foregroundThroughout = AppState.currentState !== 'background';
 
 AppState.addEventListener('change', next => {
-  if (interactiveAt === undefined && next !== 'active') {
+  if (interactiveAt === undefined && next === 'background') {
     foregroundThroughout = false;
   }
 });
