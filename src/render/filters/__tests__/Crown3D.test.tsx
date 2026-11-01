@@ -14,13 +14,18 @@ import {FACE_STRIDE, VALUES_PER_POINT} from '../../../native/landmarkFormat';
  * stand-ins; whether the pixels come out right is checked on the phones.
  */
 const mockContext = {configure: jest.fn(), present: jest.fn(), unconfigure: jest.fn()};
-const mockDevice = {
-  label: 'device',
-  destroyed: false,
-  destroy: jest.fn(() => {
-    mockDevice.destroyed = true;
-  }),
-};
+function makeDevice() {
+  const device = {
+    label: 'device',
+    destroyed: false,
+    destroy: jest.fn(() => {
+      device.destroyed = true;
+    }),
+  };
+  return device;
+}
+/** What useDevice() hands the next crown; a test replaces it to mount another. */
+let mockDevice = makeDevice();
 let mockSurfaceSize = {width: 400, height: 800};
 let mockHasContext = true;
 jest.mock('react-native-webgpu', () => ({
@@ -133,8 +138,7 @@ beforeEach(() => {
   mockContext.unconfigure.mockClear();
   mockSurfaceSize = {width: 400, height: 800};
   mockHasContext = true;
-  mockDevice.destroyed = false;
-  mockDevice.destroy.mockClear();
+  mockDevice = makeDevice();
 });
 
 async function mount(value: RawDetection | null, onError = jest.fn()) {
@@ -231,31 +235,36 @@ describe('Crown3D', () => {
     expect(mapDispose).toHaveBeenCalled();
   });
 
-  it('destroys its GPU device on unmount, after the renderer and the surface', async () => {
+  it('destroys a crown’s GPU device when the next crown mounts, not on unmount', async () => {
     // useDevice() creates a new device for every mount and never destroys it,
-    // and three leaves a device it was handed alone. Without this every crown
-    // run left a whole device behind: the Pixel 7 grew ~75 MB per run over
-    // eight runs with no sign of levelling off (2026-11-01). The surface has
-    // to let go first: on Android, destroying the view later tore down a
-    // swapchain that still pointed at the destroyed device, and the app
-    // crashed in Dawn's Vulkan backend on every Stop.
+    // and three leaves a device it was handed alone. Without destroying it
+    // every crown run left a whole device behind: the Pixel 7 grew ~75 MB per
+    // run over eight runs with no sign of levelling off (2026-11-01).
+    // Destroying it on unmount crashed Android on every Stop: the canvas view
+    // is detached after the cleanup, and Dawn's Vulkan backend tore down the
+    // swapchain through the destroyed device. Unconfiguring the context first
+    // did not prevent it.
     const {screen} = await mount(face());
     await waitFor(() => expect(mockRenderers[0]?.render).toHaveBeenCalled());
+    const first = mockDevice;
     const renderer = mockRenderers[0];
 
     await screen.unmount();
+    expect(renderer.dispose).toHaveBeenCalled();
+    expect(mockContext.unconfigure).toHaveBeenCalled();
+    expect(first.destroy).not.toHaveBeenCalled();
 
-    expect(mockDevice.destroy).toHaveBeenCalledTimes(1);
-    const order = (fn: jest.Mock) => fn.mock.invocationCallOrder[0];
-    expect(order(renderer.dispose)).toBeLessThan(order(mockContext.unconfigure));
-    expect(order(mockContext.unconfigure)).toBeLessThan(order(mockDevice.destroy));
+    mockDevice = makeDevice();
+    const next = await mount(face());
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    expect(mockDevice.destroy).not.toHaveBeenCalled();
+    await next.screen.unmount();
   });
 
-  it('keeps the device until a start-up in progress has settled, and reports nothing', async () => {
-    // A device destroyed mid-start-up could be configured onto the surface by
-    // what is left of it, which is the crash above again. Its failure is the
-    // stop, not a filter error to show the operator.
-    // Hold start-up in the texture decode until the stop has happened.
+  it('retires the device only once a start-up in progress has settled, and reports nothing', async () => {
+    // A device given up mid-start-up could still be configured onto the
+    // surface by what is left of it. Its failure is the stop, not a filter
+    // error to show the operator.
     let finishDecode: () => void = () => {};
     const decoding = new Promise<void>(resolve => {
       finishDecode = resolve;
@@ -266,14 +275,20 @@ describe('Crown3D', () => {
       return {width: 1024, height: 1024};
     });
     const {screen, onError} = await mount(face());
+    const first = mockDevice;
     await screen.unmount();
-    expect(mockDevice.destroy).not.toHaveBeenCalled();
+    expect(mockContext.unconfigure).not.toHaveBeenCalled();
     finishDecode();
-    await waitFor(() => expect(mockDevice.destroy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockContext.unconfigure).toHaveBeenCalled());
     createImageBitmap.mockImplementation(async () => ({width: 1024, height: 1024}));
-    expect(mockContext.unconfigure).toHaveBeenCalled();
+    expect(first.destroy).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
     expect(mockRenderers.every(renderer => renderer.render.mock.calls.length === 0)).toBe(true);
+
+    mockDevice = makeDevice();
+    const next = await mount(face());
+    expect(first.destroy).toHaveBeenCalledTimes(1);
+    await next.screen.unmount();
   });
 
   it('can warm the model at any time without side effects', () => {

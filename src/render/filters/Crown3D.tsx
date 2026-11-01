@@ -87,6 +87,33 @@ export function prewarmCrownModel(): void {
   }
 }
 
+/**
+ * GPU devices of crowns that have been taken down, destroyed when the next
+ * crown mounts.
+ *
+ * useDevice() creates a new device for every mount and never destroys it, and
+ * three's dispose() leaves a device it was handed alone, so each crown run left
+ * a whole device behind: the Pixel 7 grew ~75 MB per run over eight runs
+ * without levelling off, while landmark and sparkle runs stayed flat
+ * (2026-11-01). The PWA's renderer creates and destroys its own device per run,
+ * so destroying it here keeps the two doing the same work.
+ *
+ * Not on unmount, though. On Android the canvas view is detached after the
+ * component's cleanup has run, and Dawn's Vulkan backend tears the surface's
+ * swapchain down through its device; with the device already destroyed, every
+ * Stop crashed (null mutex in the device's deleter). Unconfiguring the context
+ * first did not help: Dawn keeps the swapchain attached until the surface goes.
+ * By the time the next crown mounts, the previous view is long gone. At most
+ * one finished run's device is held in between.
+ */
+const retiredDevices: {destroy(): void}[] = [];
+
+function destroyRetiredDevices(): void {
+  while (retiredDevices.length > 0) {
+    retiredDevices.pop()?.destroy();
+  }
+}
+
 export interface Crown3DProps {
   latest: SharedValue<RawDetection | null>;
   geometry: ViewGeometry;
@@ -148,6 +175,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
     if (!device || !surface || startedRef.current) {
       return;
     }
+    destroyRetiredDevices();
     let frame = 0;
     let disposed = false;
     // Held so the cleanup below can release them. They are created inside the
@@ -155,7 +183,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
     let activeRenderer: THREE.WebGPURenderer | undefined;
     let activeScene: THREE.Scene | undefined;
     let activeContext: {unconfigure(): void} | undefined;
-    /** Set while init() runs; the device has to outlive it (see release()). */
+    /** Set while init() runs; the device is retired only once it settles. */
     let starting: Promise<void> | undefined;
 
     const waitForLayout = () => {
@@ -402,19 +430,9 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       activeRenderer?.dispose?.();
       activeRenderer = undefined;
       activeScene = undefined;
-
-      // And the device itself. useDevice() creates a new one for every mount
-      // and never destroys it, and three's dispose() leaves a device it was
-      // handed alone, so each run left a whole device behind: the Pixel 7 grew
-      // ~75 MB per crown run over eight runs without levelling off, while
-      // landmark and sparkle runs stayed flat (2026-11-01).
-      //
-      // The surface lets go of it first. On Android the canvas view is
-      // destroyed after this cleanup, and its swapchain, still configured with
-      // the destroyed device, crashed Dawn's Vulkan backend on every Stop
-      // (null mutex in the device's deleter, 2026-11-01). iOS tolerated it.
       activeContext?.unconfigure();
-      device.destroy();
+      // The device itself goes when the next crown mounts; see retiredDevices.
+      retiredDevices.push(device);
     };
 
     waitForLayout();
@@ -422,7 +440,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       disposed = true;
       cancelAnimationFrame(frame);
       // A start-up still running would go on configuring the surface with the
-      // device, so the device is released only once it has settled.
+      // device, so the release waits until it has settled.
       if (starting) {
         starting.then(release);
       } else {
