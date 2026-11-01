@@ -1,5 +1,6 @@
 import React from 'react';
 import {fireEvent, render} from '@testing-library/react-native';
+import {StyleSheet} from 'react-native';
 import {CameraScreen} from '../CameraScreen';
 import type {PerformanceMetricsDTO} from '../../domain/tracking.dto';
 
@@ -125,5 +126,15 @@ describe('CameraScreen, survey build', () => {
       smoothingEnabled: true,
       gpuDelegateEnabled: true,
     });
+  });
+
+  it('sizes the control panel to its content, leaving the rest to the camera', async () => {
+    // A ScrollView grows by default, so the panel kept the full 300 points it
+    // needs for the settings of the full build even in the survey build, where
+    // it holds only the view and Start; the PWA's panel shrinks to its content
+    // and gives the camera the rest (2026-11-01).
+    const {getByTestId} = await render(<CameraScreen />);
+    const style = StyleSheet.flatten(getByTestId('control-panel').props.style);
+    expect(style).toMatchObject({flexGrow: 0, flexShrink: 0, maxHeight: 300});
   });
 });

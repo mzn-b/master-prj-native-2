@@ -376,7 +376,7 @@ export function CameraScreen(): React.JSX.Element {
         </View>
       </View>
 
-      <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent}>
+      <ScrollView testID="control-panel" style={styles.panel} contentContainerStyle={styles.panelContent}>
         <SessionControls
           isRunning={isRunning}
           canStart={canStartTracking(capabilities)}
@@ -466,7 +466,10 @@ const styles = StyleSheet.create({
   placeholder: {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center'},
   placeholderText: {color: '#9ca3af', fontSize: 16},
   hudLayer: {position: 'absolute', top: 12, left: 12, right: 12, gap: 8},
-  panel: {maxHeight: 300, backgroundColor: '#111827'},
+  // Sized to its content up to 300 points, as the PWA's panel is: a ScrollView
+  // grows by default, which kept the full 300 points even in the survey build,
+  // where the panel holds only the view and Start, and took them from the camera.
+  panel: {maxHeight: 300, flexGrow: 0, flexShrink: 0, backgroundColor: '#111827'},
   panelContent: {padding: 12, gap: 10},
   row: {flexDirection: 'row', gap: 6},
   tabLabel: {color: '#fff'},
