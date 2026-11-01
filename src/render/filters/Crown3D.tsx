@@ -165,6 +165,11 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       if (width > 0 && height > 0) {
         startedRef.current = true;
         init(width, height).catch(error => {
+          // A stop during start-up destroys the device under it, so what fails
+          // afterwards is the stop, not the filter.
+          if (disposed) {
+            return;
+          }
           // Never swallow this silently: a failure here means the filter shows
           // nothing at all, with no other symptom. console.warn alone is not
           // enough — it does not reach logcat in a Release build, which is how
@@ -388,6 +393,13 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       activeRenderer?.dispose?.();
       activeRenderer = undefined;
       activeScene = undefined;
+
+      // And the device itself. useDevice() creates a new one for every mount
+      // and never destroys it, and three's dispose() leaves a device it was
+      // handed alone, so each run left a whole device behind: the Pixel 7 grew
+      // ~75 MB per crown run over eight runs without levelling off, while
+      // landmark and sparkle runs stayed flat (2026-11-01).
+      device.destroy();
     };
     // geometry is deliberately absent: see geometryRef above. Including it
     // tore down the render loop the moment the camera reported its frame size.

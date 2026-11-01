@@ -14,7 +14,13 @@ import {FACE_STRIDE, VALUES_PER_POINT} from '../../../native/landmarkFormat';
  * stand-ins; whether the pixels come out right is checked on the phones.
  */
 const mockContext = {configure: jest.fn(), present: jest.fn()};
-const mockDevice = {label: 'device'};
+const mockDevice = {
+  label: 'device',
+  destroyed: false,
+  destroy: jest.fn(() => {
+    mockDevice.destroyed = true;
+  }),
+};
 let mockSurfaceSize = {width: 400, height: 800};
 let mockHasContext = true;
 jest.mock('react-native-webgpu', () => ({
@@ -53,7 +59,9 @@ jest.mock('three/webgpu', () => {
       mockRenderers.push(this as unknown as FakeRenderer);
     }
     init() {
-      return Promise.resolve();
+      return mockDevice.destroyed
+        ? Promise.reject(new Error('device destroyed'))
+        : Promise.resolve();
     }
   }
   return {...actual, WebGPURenderer};
@@ -124,6 +132,8 @@ beforeEach(() => {
   mockContext.present.mockClear();
   mockSurfaceSize = {width: 400, height: 800};
   mockHasContext = true;
+  mockDevice.destroyed = false;
+  mockDevice.destroy.mockClear();
 });
 
 async function mount(value: RawDetection | null, onError = jest.fn()) {
@@ -218,6 +228,35 @@ describe('Crown3D', () => {
     expect(geometryDispose).toHaveBeenCalled();
     expect(materialDispose).toHaveBeenCalled();
     expect(mapDispose).toHaveBeenCalled();
+  });
+
+  it('destroys its GPU device on unmount, after the renderer', async () => {
+    // useDevice() creates a new device for every mount and never destroys it,
+    // and three leaves a device it was handed alone. Without this every crown
+    // run left a whole device behind: the Pixel 7 grew ~75 MB per run over
+    // eight runs with no sign of levelling off (2026-11-01).
+    const {screen} = await mount(face());
+    await waitFor(() => expect(mockRenderers[0]?.render).toHaveBeenCalled());
+    const renderer = mockRenderers[0];
+
+    await screen.unmount();
+
+    expect(mockDevice.destroy).toHaveBeenCalledTimes(1);
+    expect(renderer.dispose.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDevice.destroy.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('reports nothing when stopped before start-up has finished', async () => {
+    // Destroying the device mid-start-up makes the rest of it fail; that is
+    // the stop, not a filter error to show the operator.
+    const {screen, onError} = await mount(face());
+    await screen.unmount();
+    expect(mockDevice.destroy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockRenderers).toHaveLength(1));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(onError).not.toHaveBeenCalled();
+    expect(mockRenderers[0].render).not.toHaveBeenCalled();
   });
 
   it('can warm the model at any time without side effects', () => {
