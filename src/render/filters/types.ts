@@ -19,6 +19,16 @@ export const DEFAULT_ACTIVE_FILTERS: ActiveFilters = {
   sparkles: false,
 }
 
+/**
+ * The survey build's filter condition: all three filters, with no selection
+ * offered (thesis §6.1.2, decided 2026-11-01).
+ */
+export const ALL_FILTERS: ActiveFilters = {
+  crown: true,
+  glasses: true,
+  sparkles: true,
+}
+
 export const FILTER_LABELS: Record<FilterId, string> = {
   crown: 'Crown',
   glasses: 'Glasses',

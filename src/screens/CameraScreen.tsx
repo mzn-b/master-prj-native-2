@@ -23,6 +23,7 @@ import {FilterLayer} from '../render/filters/FilterLayer';
 import {prewarmCrownModel} from '../render/filters/Crown3D';
 import {APP_VERSION, SURVEY_BUILD} from '../config/buildInfo';
 import {
+  ALL_FILTERS,
   DEFAULT_ACTIVE_FILTERS,
   drawnRenderBackend,
   submittedFilters,
@@ -277,15 +278,23 @@ export function CameraScreen(): React.JSX.Element {
    * selection left behind in landmarks mode is invisible but still submitted.
    * Clearing here keeps the state honest; submittedFilters() keeps the report
    * honest even if it is not.
+   *
+   * The survey build offers no selection: its filter view is the study's
+   * filter condition, all three filters (thesis §6.1.2).
    */
   const handleAppMode = useCallback(
     (next: AppMode) => {
       if (isRunning) {
         return;
       }
+      const surveyFilters = SURVEY_BUILD && next === 'filters';
       setAppMode(next);
-      setActiveFilters(DEFAULT_ACTIVE_FILTERS);
+      setActiveFilters(surveyFilters ? ALL_FILTERS : DEFAULT_ACTIVE_FILTERS);
       setFilterError(null);
+      if (surveyFilters) {
+        // Decoded now rather than at Start, as when the crown is selected.
+        prewarmCrownModel();
+      }
     },
     [isRunning],
   );
@@ -425,7 +434,9 @@ export function CameraScreen(): React.JSX.Element {
         {appMode === 'landmarks' ? (
           !SURVEY_BUILD && <ModeSelector mode={mode} disabled={isRunning} onChange={setMode} />
         ) : (
-          <FilterBar activeFilters={activeFilters} onToggle={handleFilterToggle} />
+          !SURVEY_BUILD && (
+            <FilterBar activeFilters={activeFilters} onToggle={handleFilterToggle} />
+          )
         )}
 
         <SettingsSheet
