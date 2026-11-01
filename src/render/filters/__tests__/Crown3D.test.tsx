@@ -13,7 +13,7 @@ import {FACE_STRIDE, VALUES_PER_POINT} from '../../../native/landmarkFormat';
  * the release of GPU resources. The WebGPU surface and three's renderer are
  * stand-ins; whether the pixels come out right is checked on the phones.
  */
-const mockContext = {configure: jest.fn(), present: jest.fn()};
+const mockContext = {configure: jest.fn(), present: jest.fn(), unconfigure: jest.fn()};
 const mockDevice = {
   label: 'device',
   destroyed: false,
@@ -130,6 +130,7 @@ beforeEach(() => {
   mockRenderers.length = 0;
   mockContext.configure.mockClear();
   mockContext.present.mockClear();
+  mockContext.unconfigure.mockClear();
   mockSurfaceSize = {width: 400, height: 800};
   mockHasContext = true;
   mockDevice.destroyed = false;
@@ -230,11 +231,14 @@ describe('Crown3D', () => {
     expect(mapDispose).toHaveBeenCalled();
   });
 
-  it('destroys its GPU device on unmount, after the renderer', async () => {
+  it('destroys its GPU device on unmount, after the renderer and the surface', async () => {
     // useDevice() creates a new device for every mount and never destroys it,
     // and three leaves a device it was handed alone. Without this every crown
     // run left a whole device behind: the Pixel 7 grew ~75 MB per run over
-    // eight runs with no sign of levelling off (2026-11-01).
+    // eight runs with no sign of levelling off (2026-11-01). The surface has
+    // to let go first: on Android, destroying the view later tore down a
+    // swapchain that still pointed at the destroyed device, and the app
+    // crashed in Dawn's Vulkan backend on every Stop.
     const {screen} = await mount(face());
     await waitFor(() => expect(mockRenderers[0]?.render).toHaveBeenCalled());
     const renderer = mockRenderers[0];
@@ -242,21 +246,34 @@ describe('Crown3D', () => {
     await screen.unmount();
 
     expect(mockDevice.destroy).toHaveBeenCalledTimes(1);
-    expect(renderer.dispose.mock.invocationCallOrder[0]).toBeLessThan(
-      mockDevice.destroy.mock.invocationCallOrder[0],
-    );
+    const order = (fn: jest.Mock) => fn.mock.invocationCallOrder[0];
+    expect(order(renderer.dispose)).toBeLessThan(order(mockContext.unconfigure));
+    expect(order(mockContext.unconfigure)).toBeLessThan(order(mockDevice.destroy));
   });
 
-  it('reports nothing when stopped before start-up has finished', async () => {
-    // Destroying the device mid-start-up makes the rest of it fail; that is
-    // the stop, not a filter error to show the operator.
+  it('keeps the device until a start-up in progress has settled, and reports nothing', async () => {
+    // A device destroyed mid-start-up could be configured onto the surface by
+    // what is left of it, which is the crash above again. Its failure is the
+    // stop, not a filter error to show the operator.
+    // Hold start-up in the texture decode until the stop has happened.
+    let finishDecode: () => void = () => {};
+    const decoding = new Promise<void>(resolve => {
+      finishDecode = resolve;
+    });
+    const createImageBitmap = globalThis.createImageBitmap as unknown as jest.Mock;
+    createImageBitmap.mockImplementation(async () => {
+      await decoding;
+      return {width: 1024, height: 1024};
+    });
     const {screen, onError} = await mount(face());
     await screen.unmount();
-    expect(mockDevice.destroy).toHaveBeenCalledTimes(1);
-    await waitFor(() => expect(mockRenderers).toHaveLength(1));
-    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(mockDevice.destroy).not.toHaveBeenCalled();
+    finishDecode();
+    await waitFor(() => expect(mockDevice.destroy).toHaveBeenCalledTimes(1));
+    createImageBitmap.mockImplementation(async () => ({width: 1024, height: 1024}));
+    expect(mockContext.unconfigure).toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
-    expect(mockRenderers[0].render).not.toHaveBeenCalled();
+    expect(mockRenderers.every(renderer => renderer.render.mock.calls.length === 0)).toBe(true);
   });
 
   it('can warm the model at any time without side effects', () => {

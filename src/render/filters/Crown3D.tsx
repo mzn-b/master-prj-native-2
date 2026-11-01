@@ -154,6 +154,9 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
     // async init, which the cleanup cannot see into otherwise.
     let activeRenderer: THREE.WebGPURenderer | undefined;
     let activeScene: THREE.Scene | undefined;
+    let activeContext: {unconfigure(): void} | undefined;
+    /** Set while init() runs; the device has to outlive it (see release()). */
+    let starting: Promise<void> | undefined;
 
     const waitForLayout = () => {
       if (disposed) {
@@ -164,9 +167,8 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       const height = live?.height ?? 0;
       if (width > 0 && height > 0) {
         startedRef.current = true;
-        init(width, height).catch(error => {
-          // A stop during start-up destroys the device under it, so what fails
-          // afterwards is the stop, not the filter.
+        starting = init(width, height).catch(error => {
+          // What fails after a stop during start-up is the stop, not the filter.
           if (disposed) {
             return;
           }
@@ -177,6 +179,8 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
           const message = error instanceof Error ? error.message : String(error);
           console.warn('[Crown3D] initialisation failed:', error);
           onErrorRef.current?.(message);
+        }).finally(() => {
+          starting = undefined;
         });
         return;
       }
@@ -193,6 +197,7 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
         format: navigator.gpu.getPreferredCanvasFormat(),
         alphaMode: 'premultiplied',
       });
+      activeContext = context;
 
       const bytes = decodeCrownModel();
 
@@ -222,6 +227,9 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       const gltf = await new GLTFLoader().parseAsync(bytes, '');
       const model = gltf.scene;
       const decoded = await decodeGlbTextures(bytes);
+      if (disposed) {
+        return;
+      }
       applyGlbTextures(bytes, model, decoded);
 
 
@@ -259,6 +267,9 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 2.2;
       await renderer.init();
+      if (disposed) {
+        return;
+      }
       renderer.setSize(width, height, false);
 
       const tick = () => {
@@ -357,20 +368,18 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       tick();
     };
 
-    waitForLayout();
-    return () => {
-      disposed = true;
-      cancelAnimationFrame(frame);
-
-      // Release the GPU resources. FilterLayer unmounts whenever a session
-      // stops, so without this every run abandons a whole WebGPU renderer, a
-      // scene, the parsed model and its decoded textures.
-      //
-      // Measured before this existed: Android native grew ~41 MB net per
-      // session and reached 1600 MB over 30 runs, while its own PWA — which
-      // does call dispose() when the overlay tears down — stayed flat. iOS
-      // leaked the same way, more slowly. It also means `memoryUsageMB` was
-      // reporting an accumulating leak rather than the app's working set.
+    /**
+     * Release the GPU resources. FilterLayer unmounts whenever a session stops,
+     * so without this every run abandons a whole WebGPU renderer, a scene, the
+     * parsed model and its decoded textures.
+     *
+     * Measured before this existed: Android native grew ~41 MB net per session
+     * and reached 1600 MB over 30 runs, while its own PWA — which does call
+     * dispose() when the overlay tears down — stayed flat. iOS leaked the same
+     * way, more slowly. It also means `memoryUsageMB` was reporting an
+     * accumulating leak rather than the app's working set.
+     */
+    const release = () => {
       activeScene?.traverse(object => {
         const mesh = object as THREE.Mesh;
         mesh.geometry?.dispose?.();
@@ -399,7 +408,26 @@ export function Crown3D({latest, geometry, onError}: Crown3DProps): React.JSX.El
       // handed alone, so each run left a whole device behind: the Pixel 7 grew
       // ~75 MB per crown run over eight runs without levelling off, while
       // landmark and sparkle runs stayed flat (2026-11-01).
+      //
+      // The surface lets go of it first. On Android the canvas view is
+      // destroyed after this cleanup, and its swapchain, still configured with
+      // the destroyed device, crashed Dawn's Vulkan backend on every Stop
+      // (null mutex in the device's deleter, 2026-11-01). iOS tolerated it.
+      activeContext?.unconfigure();
       device.destroy();
+    };
+
+    waitForLayout();
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      // A start-up still running would go on configuring the surface with the
+      // device, so the device is released only once it has settled.
+      if (starting) {
+        starting.then(release);
+      } else {
+        release();
+      }
     };
     // geometry is deliberately absent: see geometryRef above. Including it
     // tore down the render loop the moment the camera reported its frame size.
