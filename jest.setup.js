@@ -83,3 +83,22 @@ jest.mock('tracking-native', () => ({
   }),
   createNativeMetrics: () => ({snapshot: () => ({})}),
 }));
+
+/**
+ * The worklets package initialises a native module on import. useTracking only
+ * needs createSynchronizable, whose native value is read and written
+ * synchronously; a plain holder behaves the same on one thread.
+ */
+jest.mock('react-native-worklets', () => ({
+  createSynchronizable: (initial) => {
+    let value = initial;
+    return {
+      getBlocking: () => value,
+      setBlocking: (next) => {
+        value = typeof next === 'function' ? next(value) : next;
+      },
+      lock: () => {},
+      unlock: () => {},
+    };
+  },
+}));

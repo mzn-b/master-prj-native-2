@@ -3,6 +3,7 @@ import * as VisionCamera from 'react-native-vision-camera';
 import type {RawDetection} from 'tracking-native';
 import {FACE_STRIDE, HAND_STRIDE, VALUES_PER_POINT} from '../../native/landmarkFormat';
 import {useTracking, type UseTrackingOptions} from '../useTracking';
+import {PerformanceTracker} from '../PerformanceTracker';
 
 /**
  * The measurement pipeline: camera frame -> detect -> per-frame statistics on
@@ -345,6 +346,62 @@ describe('useTracking', () => {
     const metrics = await act(() => hook.result.current.stop());
     expect(hook.result.current.isRunning).toBe(false);
     expect(metrics).toMatchObject({frameCount: 1});
+  });
+
+  /*
+   * The metrics tick used to read the worklets' counters, hand them to the
+   * tracker and then reset them. A frame counted in between was lost, or a
+   * batch already handed over was written back and counted twice. Measured
+   * on 2026-11-01 against counters nothing reset: the Pixel 7 submitted 150
+   * of 181 processed frames, the iPhone 371 of 323. In these tests a frame
+   * arrives inside the tracker call the drain makes, which is that window.
+   */
+  it('counts a frame that finishes while the tick is draining', async () => {
+    const {hook, onFrame} = await setup({dynamicInferenceEnabled: false});
+    await act(() => hook.result.current.start());
+    await feed(onFrame, {});
+    await feed(onFrame, {});
+    const original = PerformanceTracker.prototype.recordBatch;
+    const spy = jest
+      .spyOn(PerformanceTracker.prototype, 'recordBatch')
+      .mockImplementationOnce(function (
+        this: PerformanceTracker,
+        batch: Parameters<PerformanceTracker['recordBatch']>[0],
+      ) {
+        original.call(this, batch);
+        mockDetector.detect.mockReturnValueOnce(detection({}));
+        onFrame(frame());
+      });
+    await act(() => {
+      jest.advanceTimersByTime(500);
+    });
+    spy.mockRestore();
+    const metrics = await act(() => hook.result.current.stop());
+    expect(metrics).toMatchObject({frameCount: 3});
+  });
+
+  it('counts a frame refused while the tick is draining', async () => {
+    const {hook, onFrame} = await setup({dynamicInferenceEnabled: false});
+    await act(() => hook.result.current.start());
+    await feed(onFrame, {});
+    busy = true;
+    onFrame(frame());
+    const original = PerformanceTracker.prototype.recordDroppedFrame;
+    const spy = jest
+      .spyOn(PerformanceTracker.prototype, 'recordDroppedFrame')
+      .mockImplementationOnce(function (
+        this: PerformanceTracker,
+        ...args: Parameters<PerformanceTracker['recordDroppedFrame']>
+      ) {
+        original.apply(this, args);
+        onFrame(frame());
+      });
+    await act(() => {
+      jest.advanceTimersByTime(500);
+    });
+    spy.mockRestore();
+    const metrics = await act(() => hook.result.current.stop());
+    expect(metrics).toMatchObject({droppedFramesBusy: 2, droppedFrames: 2});
   });
 
   it('publishes metrics on the half-second tick while running', async () => {
