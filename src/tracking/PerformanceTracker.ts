@@ -151,6 +151,13 @@ export class PerformanceTracker {
 
   /** NF3 — wall clock of the first frame that produced a detection. */
   private firstDetectionAtMs: number | undefined;
+  /**
+   * Whether this window began with start(), i.e. with the camera and the models
+   * starting. NF3's time to first detection covers that start-up; a window
+   * opened by a filter toggle has none, and a batch carrying a detection from
+   * before the toggle made the figure negative (2026-10-29).
+   */
+  private windowIncludesStartup = false;
   /** Run conditions, set once per session by the caller. */
   private runConditions: {
     frameWidth?: number;
@@ -205,6 +212,7 @@ export class PerformanceTracker {
 
   start(): void {
     this.clearCounters();
+    this.windowIncludesStartup = true;
     // NF3. Read rather than accumulated: it is a property of the launch, so it
     // is the same value for every session in this process — which is also true
     // of the PWA's navigation timing.
@@ -214,12 +222,14 @@ export class PerformanceTracker {
   /**
    * Start a new measurement window without tearing down the session — used when
    * a filter is toggled, so each filter combination is its own submitted session.
-   * Unlike start(), this also forgets the model load time: it belongs to the
-   * window in which the models were actually loaded.
+   * Unlike start(), this also forgets the model load time and reports no time
+   * to first detection: both belong to the window in which the camera and the
+   * models actually started.
    */
   reset(): void {
     this.clearCounters();
     this.modelLoadTimeMs = undefined;
+    this.windowIncludesStartup = false;
   }
 
   setModelLoadTime(timeMs: number): void {
@@ -565,7 +575,7 @@ export class PerformanceTracker {
       dynamicInferenceEnabled: this.runConditions.dynamicInferenceEnabled,
       gpuDelegateEnabled: this.runConditions.gpuDelegateEnabled,
       timeToFirstDetectionMs:
-        this.firstDetectionAtMs !== undefined
+        this.windowIncludesStartup && this.firstDetectionAtMs !== undefined
           ? r(this.firstDetectionAtMs - this.startTime, 1)
           : undefined,
 

@@ -178,6 +178,24 @@ describe('PerformanceTracker.recordBatch', () => {
     expect(t.getMetrics().frameCount).toBe(10);
   });
 
+  it('reports no time to first detection for a window opened by a filter toggle', () => {
+    // NF3's time to first detection spans camera and model start-up, and a
+    // toggle starts neither. A batch carrying a detection from before the
+    // reset made it negative: -376 and -520 ms on 2026-10-29.
+    const t = new PerformanceTracker();
+    t.start();
+    jest.setSystemTime(1000);
+    t.recordBatch(batch({firstTrackedAtMs: 900}));
+    expect(t.getMetrics().timeToFirstDetectionMs).toBe(900);
+    t.reset();
+    t.recordBatch(batch({firstTrackedAtMs: 950}));
+    expect(t.getMetrics().timeToFirstDetectionMs).toBeUndefined();
+    t.start();
+    jest.setSystemTime(1600);
+    t.recordBatch(batch({firstTrackedAtMs: 1400}));
+    expect(t.getMetrics().timeToFirstDetectionMs).toBe(400);
+  });
+
   it('ignores an empty batch', () => {
     const t = new PerformanceTracker();
     t.start();
