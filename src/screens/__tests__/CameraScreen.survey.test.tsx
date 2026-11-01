@@ -10,10 +10,12 @@ jest.mock('../../render/filters/Crown3D', () => ({
 }));
 /** A stand-in for the tracking hook, as in CameraScreen.session.test.tsx. */
 const mockStop = jest.fn();
+const mockOptions: {current: Record<string, unknown> | null} = {current: null};
 jest.mock('../../tracking/useTracking', () => {
   const React2 = require('react');
   return {
-    useTracking: () => {
+    useTracking: (options: Record<string, unknown>) => {
+      mockOptions.current = options;
       const [isRunning, setRunning] = React2.useState(false);
       return {
         isRunning,
@@ -109,5 +111,19 @@ describe('CameraScreen, survey build', () => {
     await fireEvent.press(getByText('Start'));
     await fireEvent.press(getByText('Stop'));
     expect(submittedFilters()).toEqual([]);
+  });
+
+  it('runs without the adaptive inference governor (F15)', async () => {
+    // Decided 2026-11-01: on the Pixel 7 the governor's 33 ms target is out of
+    // reach, so it raised the frame-skip divider every ten seconds until its
+    // cap of 10 within a 60-second run (sessions 181-184), and a run's frame
+    // rate came to depend on how long it lasted.
+    const {getByText} = await render(<CameraScreen />);
+    await fireEvent.press(getByText('Start'));
+    expect(mockOptions.current).toMatchObject({
+      dynamicInferenceEnabled: false,
+      smoothingEnabled: true,
+      gpuDelegateEnabled: true,
+    });
   });
 });

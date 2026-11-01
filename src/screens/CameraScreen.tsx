@@ -50,7 +50,14 @@ export function CameraScreen(): React.JSX.Element {
   const [appMode, setAppMode] = useState<AppMode>('landmarks');
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(DEFAULT_ACTIVE_FILTERS);
   const [smoothingEnabled, setSmoothingEnabled] = useState(true);
-  const [dynamicInferenceEnabled, setDynamicInferenceEnabled] = useState(true);
+  /**
+   * F15 — off in the survey build (decided 2026-11-01). On the Pixel 7 the
+   * governor's 33 ms target is out of reach, so it raised the frame-skip
+   * divider every ten seconds until its cap of 10 within a 60-second run, and a
+   * run's frame rate came to depend on how long it lasted rather than on the
+   * implementation. The full build keeps it on, and keeps the switch.
+   */
+  const [dynamicInferenceEnabled, setDynamicInferenceEnabled] = useState(!SURVEY_BUILD);
   /**
    * Requests the MediaPipe GPU delegate. Default on, matching how every
    * session so far was recorded.
