@@ -7,6 +7,7 @@ import {
   usePreviewOutput,
 } from 'react-native-vision-camera';
 import {Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View, type LayoutChangeEvent} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import type {PerformanceMetricsDTO, TrackingDTO, TrackingMode} from '../domain/tracking.dto';
 import {submitTrackingSession} from '../api/trackingApi';
 import {getNativeMetrics} from '../metrics/nativeMetrics';
@@ -43,6 +44,11 @@ import {SettingsSheet} from '../ui/SettingsSheet';
 const FRAME_ROTATION: Rotation = Platform.OS === 'ios' ? 90 : 270;
 
 export function CameraScreen(): React.JSX.Element {
+  // The camera preview runs edge to edge, under the status bar, so the HUDs
+  // need the top inset; with a fixed offset the Performance HUD's first row
+  // sat under the Android status bar (found in the screenshots of 2026-11-02).
+  // The PWA's page starts below the status bar, so its HUD never had this.
+  const insets = useSafeAreaInsets();
   const device = useCameraDevice('front');
   const {hasPermission, requestPermission} = useCameraPermission();
 
@@ -358,7 +364,7 @@ export function CameraScreen(): React.JSX.Element {
           )
         )}
 
-        <View style={styles.hudLayer} pointerEvents="none">
+        <View style={[styles.hudLayer, {top: insets.top + 12}]} pointerEvents="none">
           {showPerformance && (
             <PerformanceHud metrics={metrics} />
           )}

@@ -112,3 +112,8 @@ jest.mock('react-native-worklets', () => ({
 jest.mock('react-native-vision-camera-worklets', () => ({
   createWorkletRuntimeForThread: () => ({}),
 }));
+
+/** The library's own mock: zero insets, and no provider needed (CameraScreen reads the top inset). */
+jest.mock('react-native-safe-area-context', () =>
+  require('react-native-safe-area-context/jest/mock').default,
+);
