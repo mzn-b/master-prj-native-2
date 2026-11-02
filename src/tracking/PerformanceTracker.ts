@@ -347,10 +347,16 @@ export class PerformanceTracker {
     // The rolling buffers above take batch means, which is fine for the live
     // HUD. The percentiles must not: averaging is what removes the spikes they
     // exist to show, so they take the individual samples the worklet carried.
-    for (const sample of batch.intervalSamples ?? []) {
+    // F11: the warm-up frames (model building, the first detections) stay out
+    // of the percentiles, as they stay out of min/max fps; since 3 Nov 2026,
+    // on both apps. The samples are the newest of the batch, so sample j is
+    // frame frameCount + (frames - samples.length) + j + 1.
+    const afterWarmup = (samples: number[]) =>
+      samples.slice(Math.max(0, WARMUP_FRAMES - this.frameCount - (batch.frames - samples.length)));
+    for (const sample of afterWarmup(batch.intervalSamples ?? [])) {
       if (sample > 0) this.frameIntervalSeries.push(sample);
     }
-    for (const sample of batch.inferenceSamples ?? []) {
+    for (const sample of afterWarmup(batch.inferenceSamples ?? [])) {
       this.inferenceSeries.push(sample);
     }
 

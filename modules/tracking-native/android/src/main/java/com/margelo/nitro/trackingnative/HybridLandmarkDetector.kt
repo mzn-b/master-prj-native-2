@@ -213,6 +213,12 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
       mpImage.close()
     }
 
+    // Packed before the clock stops: the span includes packing the output for
+    // JavaScript, as the PWA's includes mapping it (thesis §6.4.1). Until
+    // 3 Nov 2026 the clock stopped before these two copies.
+    val landmarkBuffer = toArrayBuffer(floats)
+    val blendshapeBuffer = toArrayBuffer(scores)
+
     val elapsedNanos = System.nanoTime() - started
     hint.end(elapsedNanos)
     val inferenceMs = elapsedNanos / 1_000_000.0
@@ -221,8 +227,8 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
       timestampMs = timestampMs,
       faceCount = faces.size.toDouble(),
       handCount = hands.size.toDouble(),
-      landmarks = toArrayBuffer(floats),
-      blendshapes = toArrayBuffer(scores),
+      landmarks = landmarkBuffer,
+      blendshapes = blendshapeBuffer,
       blendshapeNames = names.toTypedArray(),
       hands = handMeta,
       inferenceTimeMs = inferenceMs

@@ -1,4 +1,5 @@
 import Foundation
+import QuartzCore
 import MediaPipeTasksVision
 
 /// Owns the MediaPipe tasks for one tracking session.
@@ -15,7 +16,7 @@ final class MediaPipeEngine {
   private(set) var gestureRecognizer: GestureRecognizer?
 
   func configure(wantFace: Bool, wantHand: Bool, maxFaces: Int, maxHands: Int, useGpu: Bool) {
-    let started = CFAbsoluteTimeGetCurrent()
+    let started = CACurrentMediaTime()
     release()
 
     var gpuOk = useGpu
@@ -39,7 +40,7 @@ final class MediaPipeEngine {
     }
 
     gpuDelegateActive = gpuOk && (wantFace || wantHand)
-    modelLoadTimeMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
+    modelLoadTimeMs = (CACurrentMediaTime() - started) * 1000
   }
 
   private static func modelPath(_ name: String) throws -> String {

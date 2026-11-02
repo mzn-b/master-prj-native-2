@@ -351,6 +351,15 @@ export function useTracking(options: UseTrackingOptions) {
             // where an imported worklet arrives as an object rather than a
             // function. Only HybridObjects and SharedValues are safe to touch.
             const detection = boxedDetector.unbox().detect(frame, startedAt);
+            // An empty result (inactive detector, a timestamp that did not
+            // advance, no usable image) is the module's "nothing processed",
+            // with an inference time of 0. It is not a measurement, so the frame
+            // is not counted, as the PWA does not count a frame it could not
+            // process. Until 3 Nov 2026 it entered the series as a 0 ms
+            // inference and a tracking loss.
+            if (detection.inferenceTimeMs <= 0) {
+              return;
+            }
             latestRaw.value = detection;
 
             const finishedAt = Date.now();

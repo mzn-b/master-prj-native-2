@@ -311,10 +311,32 @@ describe('PerformanceTracker percentiles from batched frames', () => {
     // would flatten the 200 ms frame that the p95 exists to expose.
     const t = new PerformanceTracker();
     t.start();
+    t.recordBatch(batch(Array(WARMUP_FRAMES).fill(500)));
     t.recordBatch(batch([10, 10, 10, 10, 10, 10, 10, 10, 10, 200]));
     const m = t.getMetrics();
     expect(m.inferenceTimeP95Ms).toBeCloseTo(200, 1);
     expect(m.inferenceTimeP50Ms).toBeCloseTo(10, 1);
+  });
+
+  it('leaves the warm-up frames out, even when a batch straddles the warm-up', () => {
+    // F11, as in the PWA: 25 slow frames, then a batch whose first five frames
+    // still belong to the warm-up and whose last five do not.
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch(Array(WARMUP_FRAMES - 5).fill(500)));
+    t.recordBatch(batch([500, 500, 500, 500, 500, 20, 20, 20, 20, 20]));
+    const m = t.getMetrics();
+    expect(m.inferenceTimeP99Ms).toBe(20);
+    expect(m.frameIntervalP99Ms).toBe(20);
+  });
+
+  it('maps the samples to frames when the window overflowed', () => {
+    // Only the newest samples of a long batch arrive: here 3 of 40 frames,
+    // all after the warm-up.
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch({...batch([7, 7, 7]), frames: 40});
+    expect(t.getMetrics().inferenceTimeP50Ms).toBe(7);
   });
 
   it('accumulates across batches rather than resetting per drain', () => {

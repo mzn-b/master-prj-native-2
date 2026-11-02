@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 import MediaPipeTasksVision
 import NitroModules
+import QuartzCore
 import UIKit
 import VisionCamera
 
@@ -88,7 +89,10 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
     // ready, including MPImage construction and the packing loop below. Timing
     // only the MediaPipe call would exclude work the platform genuinely does and
     // make it look faster than it is. The PWA brackets the equivalent span.
-    let started = CFAbsoluteTimeGetCurrent()
+    // CACurrentMediaTime is monotonic, like Android's System.nanoTime() and the
+    // PWA's performance.now(); CFAbsoluteTimeGetCurrent, used until 3 Nov 2026,
+    // is the wall clock and moves when the system adjusts it.
+    let started = CACurrentMediaTime()
 
     guard let nativeFrame = frame as? any NativeFrame else {
       return Self.empty(timestampMs: timestampMs)
@@ -181,14 +185,17 @@ final class HybridLandmarkDetector: HybridLandmarkDetectorSpec {
       )
     }
 
-    let inferenceMs = (CFAbsoluteTimeGetCurrent() - started) * 1000
+    // Packed before the clock stops, as on Android (thesis §6.4.1).
+    let landmarkBuffer = Self.buffer(from: floats)
+    let blendshapeBuffer = Self.buffer(from: scores)
+    let inferenceMs = (CACurrentMediaTime() - started) * 1000
 
     return RawDetection(
       timestampMs: timestampMs,
       faceCount: Double(faces.count),
       handCount: Double(hands.count),
-      landmarks: Self.buffer(from: floats),
-      blendshapes: Self.buffer(from: scores),
+      landmarks: landmarkBuffer,
+      blendshapes: blendshapeBuffer,
       blendshapeNames: blendshapeNames,
       hands: handMeta,
       inferenceTimeMs: inferenceMs
