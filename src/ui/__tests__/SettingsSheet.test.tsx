@@ -11,7 +11,6 @@ import {SettingsSheet, type SettingsSheetProps} from '../SettingsSheet';
  */
 const props = (overrides: Partial<SettingsSheetProps> = {}): SettingsSheetProps => ({
   smoothingEnabled: true,
-  dynamicInferenceEnabled: true,
   gpuDelegateEnabled: true,
   showPerformance: false,
   showDebug: false,
@@ -21,7 +20,6 @@ const props = (overrides: Partial<SettingsSheetProps> = {}): SettingsSheetProps 
 
 const LABELS = [
   ['F9: Glättung (One Euro)', 'smoothingEnabled'],
-  ['F15: Dynamische Inferenzrate', 'dynamicInferenceEnabled'],
   ['GPU-Delegate', 'gpuDelegateEnabled'],
   ['Performance-HUD', 'showPerformance'],
   ['F14: Debug-HUD', 'showDebug'],
@@ -43,7 +41,7 @@ describe('SettingsSheet (full build)', () => {
   it('locks the GPU delegate while a session runs, and nothing else', async () => {
     const {getAllByRole} = await render(<SettingsSheet {...props({settingsLocked: true})} />);
     const disabled = getAllByRole('switch').map(s => Boolean(s.props.disabled));
-    expect(disabled).toEqual([false, false, true, false, false]);
+    expect(disabled).toEqual([false, true, false, false]);
   });
 
   it('shows no survey button while no survey URL is configured', async () => {

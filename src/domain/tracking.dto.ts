@@ -167,6 +167,12 @@ export type PerformanceMetricsDTO = {
     //
     // Sampled per camera frame, so the mean is time-weighted rather than
     // weighted by completed inferences.
+    //
+    // The governor was removed from both apps on 2026-11-02: its input, the
+    // mean inference time, does not respond to frame skipping, so on the Pixel 7
+    // it climbed to its cap in every run. From then on the columns stay but are
+    // constant (avgFrameSkip and maxFrameSkip 1, droppedFramesGovernor 0,
+    // dynamicInferenceEnabled false); earlier sessions keep their values.
     avgFrameSkip?: number;
     maxFrameSkip?: number;
 

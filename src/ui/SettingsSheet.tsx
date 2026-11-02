@@ -5,7 +5,6 @@ import {UX_SURVEY_URL} from '../config/survey';
 
 export interface SettingsSheetProps {
   smoothingEnabled: boolean;
-  dynamicInferenceEnabled: boolean;
   gpuDelegateEnabled: boolean;
   showPerformance: boolean;
   showDebug: boolean;
@@ -19,7 +18,6 @@ export interface SettingsSheetProps {
   onChange: (
     key:
       | 'smoothingEnabled'
-      | 'dynamicInferenceEnabled'
       | 'gpuDelegateEnabled'
       | 'showPerformance'
       | 'showDebug',
@@ -56,7 +54,6 @@ function Toggle({
  */
 export function SettingsSheet({
   smoothingEnabled,
-  dynamicInferenceEnabled,
   gpuDelegateEnabled,
   showPerformance,
   showDebug,
@@ -78,13 +75,6 @@ export function SettingsSheet({
           label="F9: Glättung (One Euro)"
           value={smoothingEnabled}
           onValueChange={next => onChange('smoothingEnabled', next)}
-        />
-      )}
-      {!SURVEY_BUILD && (
-        <Toggle
-          label="F15: Dynamische Inferenzrate"
-          value={dynamicInferenceEnabled}
-          onValueChange={next => onChange('dynamicInferenceEnabled', next)}
         />
       )}
       {!SURVEY_BUILD && (

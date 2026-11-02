@@ -29,7 +29,6 @@ jest.mock('../../tracking/useTracking', () => {
         latest: {value: null},
         frameSize: {value: {width: 0, height: 0}},
         metrics: mockTracking.metrics,
-        currentFrameSkip: 1,
         frameOutput: {},
         start: () => {
           mockTracking.start();
@@ -154,14 +153,12 @@ describe('CameraScreen sessions', () => {
   it('passes the settings to the tracking hook', async () => {
     const {getAllByRole, getByText} = await render(<CameraScreen />);
     await fireEvent.press(getByText('face'));
-    const [smoothing, dynamic, gpu] = getAllByRole('switch');
+    const [smoothing, gpu] = getAllByRole('switch');
     await fireEvent(smoothing, 'valueChange', false);
-    await fireEvent(dynamic, 'valueChange', false);
     await fireEvent(gpu, 'valueChange', false);
     expect(mockTracking.options).toEqual({
       mode: 'face',
       smoothingEnabled: false,
-      dynamicInferenceEnabled: false,
       gpuDelegateEnabled: false,
     });
   });
@@ -187,7 +184,7 @@ describe('CameraScreen sessions', () => {
     } as unknown as PerformanceMetricsDTO;
     const {getAllByRole, queryByTestId} = await render(<CameraScreen />);
     expect(queryByTestId('performance-hud')).toBeNull();
-    await fireEvent(getAllByRole('switch')[3], 'valueChange', true);
+    await fireEvent(getAllByRole('switch')[2], 'valueChange', true);
     expect(queryByTestId('performance-hud')).not.toBeNull();
   });
 });

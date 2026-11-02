@@ -4,7 +4,6 @@ import type {PerformanceMetricsDTO} from '../domain/tracking.dto';
 
 export interface PerformanceHudProps {
   metrics: PerformanceMetricsDTO | null;
-  currentFrameSkip: number;
 }
 
 function Row({label, value}: {label: string; value: string}): React.JSX.Element {
@@ -17,10 +16,7 @@ function Row({label, value}: {label: string; value: string}): React.JSX.Element 
 }
 
 /** F8 — live metrics. Updated on the 500 ms tick, never per frame. */
-export function PerformanceHud({
-  metrics,
-  currentFrameSkip,
-}: PerformanceHudProps): React.JSX.Element | null {
+export function PerformanceHud({metrics}: PerformanceHudProps): React.JSX.Element | null {
   if (!metrics) {
     return null;
   }
@@ -37,7 +33,6 @@ export function PerformanceHud({
       <Row label="CPU" value={optional(metrics.cpuUsagePercent, ' %', 0)} />
       <Row label="Thermal" value={metrics.thermalState ?? '—'} />
       <Row label="Akku" value={optional(metrics.batteryLevel, ' %', 0)} />
-      <Row label="Frame-Skip" value={`${currentFrameSkip}`} />
       <Row label="Warmup" value={metrics.warmupComplete ? 'fertig' : 'läuft'} />
     </View>
   );

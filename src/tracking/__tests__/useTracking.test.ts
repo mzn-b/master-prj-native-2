@@ -52,7 +52,6 @@ jest.mock('react-native-reanimated', () => {
 const BASE_OPTIONS: UseTrackingOptions = {
   mode: 'combined',
   smoothingEnabled: true,
-  dynamicInferenceEnabled: true,
   gpuDelegateEnabled: true,
 };
 
@@ -233,28 +232,8 @@ describe('useTracking', () => {
     expect(metrics).toMatchObject({droppedFramesBusy: 1, droppedFramesGovernor: 0, droppedFrames: 1});
   });
 
-  it('lets the governor skip frames under load and counts the skips apart (F15)', async () => {
-    const {hook, onFrame} = await setup({dynamicInferenceEnabled: true});
-    await act(() => hook.result.current.start());
-    // Sustained slow inference: the governor raises the skip after enough samples.
-    for (let tick = 0; tick < 30; tick++) {
-      await feed(onFrame, {inferenceMs: 120}, 250);
-      await act(() => {
-        jest.advanceTimersByTime(250);
-      });
-    }
-    expect(hook.result.current.currentFrameSkip).toBeGreaterThan(1);
-    for (let i = 0; i < 6; i++) {
-      await feed(onFrame, {inferenceMs: 120}, 33);
-    }
-    const metrics: Record<string, unknown> | undefined = await act(() => hook.result.current.stop());
-    expect(metrics?.droppedFramesGovernor as number).toBeGreaterThan(0);
-    expect(metrics?.maxFrameSkip as number).toBeGreaterThan(1);
-    expect(metrics?.avgFrameSkip as number).toBeGreaterThan(1);
-  });
-
-  it('never skips frames with the governor off', async () => {
-    const {hook, onFrame} = await setup({dynamicInferenceEnabled: false});
+  it('never skips frames, however slow the inference (F15 is met by busy-dropping)', async () => {
+    const {hook, onFrame} = await setup();
     await act(() => hook.result.current.start());
     for (let tick = 0; tick < 30; tick++) {
       await feed(onFrame, {inferenceMs: 120}, 250);
@@ -263,7 +242,12 @@ describe('useTracking', () => {
       });
     }
     const metrics = await act(() => hook.result.current.stop());
-    expect(metrics).toMatchObject({droppedFramesGovernor: 0, maxFrameSkip: 1});
+    expect(metrics).toMatchObject({
+      droppedFramesGovernor: 0,
+      maxFrameSkip: 1,
+      avgFrameSkip: 1,
+      dynamicInferenceEnabled: false,
+    });
   });
 
   it('counts tracking loss and recovery per frame (NF7)', async () => {
@@ -308,7 +292,6 @@ describe('useTracking', () => {
   it('submits the run conditions the session was started with', async () => {
     const {hook, onFrame} = await setup({
       smoothingEnabled: false,
-      dynamicInferenceEnabled: false,
       gpuDelegateEnabled: false,
     });
     await act(() => hook.result.current.start());
@@ -357,7 +340,7 @@ describe('useTracking', () => {
    * arrives inside the tracker call the drain makes, which is that window.
    */
   it('counts a frame that finishes while the tick is draining', async () => {
-    const {hook, onFrame} = await setup({dynamicInferenceEnabled: false});
+    const {hook, onFrame} = await setup();
     await act(() => hook.result.current.start());
     await feed(onFrame, {});
     await feed(onFrame, {});
@@ -381,7 +364,7 @@ describe('useTracking', () => {
   });
 
   it('counts a frame refused while the tick is draining', async () => {
-    const {hook, onFrame} = await setup({dynamicInferenceEnabled: false});
+    const {hook, onFrame} = await setup();
     await act(() => hook.result.current.start());
     await feed(onFrame, {});
     busy = true;

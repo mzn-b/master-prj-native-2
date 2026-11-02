@@ -22,12 +22,12 @@ const metrics = (overrides: Partial<PerformanceMetricsDTO> = {}): PerformanceMet
 
 describe('PerformanceHud', () => {
   it('shows nothing before the first metrics arrive', async () => {
-    const {queryByTestId} = await render(<PerformanceHud metrics={null} currentFrameSkip={1} />);
+    const {queryByTestId} = await render(<PerformanceHud metrics={null} />);
     expect(queryByTestId('performance-hud')).toBeNull();
   });
 
   it('formats every readout', async () => {
-    const {getByText} = await render(<PerformanceHud metrics={metrics()} currentFrameSkip={2} />);
+    const {getByText} = await render(<PerformanceHud metrics={metrics()} />);
     expect(getByText('30.0 (Ø 28.4)')).toBeTruthy();
     expect(getByText('21.3 ms')).toBeTruthy();
     expect(getByText('23.0 ms')).toBeTruthy();
@@ -36,7 +36,6 @@ describe('PerformanceHud', () => {
     expect(getByText('89 %')).toBeTruthy();
     expect(getByText('nominal')).toBeTruthy();
     expect(getByText('77 %')).toBeTruthy();
-    expect(getByText('2')).toBeTruthy();
     expect(getByText('fertig')).toBeTruthy();
   });
 
@@ -50,7 +49,6 @@ describe('PerformanceHud', () => {
           batteryLevel: undefined,
           warmupComplete: false,
         })}
-        currentFrameSkip={1}
       />,
     );
     expect(getAllByText('—')).toHaveLength(4);

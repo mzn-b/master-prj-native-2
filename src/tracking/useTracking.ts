@@ -12,10 +12,6 @@ import {VALUES_PER_POINT, type RawDetection} from '../native/landmarkFormat';
 const NOSE_TIP_INDEX = 1;
 import {getNativeMetrics} from '../metrics/nativeMetrics';
 import {DEFAULT_SMOOTHING_CONFIG} from './LandmarkSmoother';
-import {
-  DEFAULT_DYNAMIC_INFERENCE_CONFIG,
-  DynamicInferenceController,
-} from './DynamicInferenceController';
 import {applyDropoutGrace, emptyGraceState} from './dropoutGrace';
 import {applySmoothing, emptySmoothingState} from './packedSmoothing';
 import {PerformanceTracker} from './PerformanceTracker';
@@ -106,9 +102,17 @@ interface FrameStats {
 }
 
 /**
- * F15 and drop accounting from the camera thread, cumulative since the run
- * began, written by the frame callback alone and held in a Synchronizable, for
- * the reasons FrameStats gives.
+ * Drop accounting from the camera thread, cumulative since the run began,
+ * written by the frame callback alone and held in a Synchronizable, for the
+ * reasons FrameStats gives.
+ *
+ * F15 is met by the pipeline itself rather than by a frame-skip governor
+ * (removed 2026-11-02): the camera hands over a new frame only when the
+ * detector is free, so the inference rate follows what the device sustains. The
+ * governor could only lower that rate, because skipping frames makes inference
+ * less frequent, not faster. The skip divider is therefore always 1, and
+ * `skipSum` and `droppedGovernor` stay so the submitted columns keep their
+ * meaning (avgFrameSkip 1, droppedFramesGovernor 0).
  */
 interface CameraTotals {
   runId: number;
@@ -195,7 +199,6 @@ export function statsDelta(previous: FrameStats, now: FrameStats) {
 export interface UseTrackingOptions {
   mode: TrackingMode;
   smoothingEnabled: boolean;
-  dynamicInferenceEnabled: boolean;
   /**
    * Whether to request the MediaPipe GPU delegate.
    *
@@ -227,7 +230,6 @@ export interface UseTrackingOptions {
 export function useTracking(options: UseTrackingOptions) {
   const [isRunning, setIsRunning] = useState(false);
   const [metrics, setMetrics] = useState<PerformanceMetricsDTO | null>(null);
-  const [currentFrameSkip, setCurrentFrameSkip] = useState(1);
 
   /** Latest detection, read directly by every renderer. */
   const latest = useSharedValue<RawDetection | null>(null);
@@ -235,7 +237,6 @@ export function useTracking(options: UseTrackingOptions) {
   const latestRaw = useSharedValue<RawDetection | null>(null);
   /** Real frame dimensions, taken from the frames themselves. */
   const frameSize = useSharedValue({width: 0, height: 0});
-  const frameSkip = useSharedValue(1);
   /**
    * Synchronizables for the reasons FrameStats gives: a shared value written
    * here reached the camera thread only after the UI thread got to it, up to a
@@ -256,9 +257,6 @@ export function useTracking(options: UseTrackingOptions) {
   const tracker = useRef(new PerformanceTracker()).current;
   /** Whether this session's model load time and delegate state are recorded. */
   const engineStateRecorded = useRef(false);
-  const governor = useRef(
-    new DynamicInferenceController(DEFAULT_DYNAMIC_INFERENCE_CONFIG),
-  ).current;
   const asyncRunner = useAsyncRunner();
 
   // Worklet-owned state. Everything the frame callback touches must be a
@@ -271,11 +269,7 @@ export function useTracking(options: UseTrackingOptions) {
    * cannot be reached from a worklet, so the toggle has to live in a SharedValue.
    */
   const smoothingConfig = useSharedValue({...DEFAULT_SMOOTHING_CONFIG});
-  /**
-   * F15 accounting. The two drop causes are counted apart because they mean
-   * opposite things: the governor skipping is the system working, the runner
-   * refusing is the device overwhelmed. Skip level is sampled per camera frame.
-   */
+  /** Camera-frame and drop accounting; see CameraTotals. */
   const [cameraTotals] = useState(() => createSynchronizable<CameraTotals>(EMPTY_CAMERA_TOTALS));
   /**
    * Measurements accumulated on the worklet runtime and read by the metrics
@@ -285,20 +279,10 @@ export function useTracking(options: UseTrackingOptions) {
   /** The figures as the tick last read them; the next read records the difference. */
   const lastStats = useRef<FrameStats>(EMPTY_STATS);
   const lastCamera = useRef<CameraTotals>(EMPTY_CAMERA_TOTALS);
-  /**
-   * The highest skip in effect in the current measurement window. Kept here,
-   * where the governor sets it, because a maximum cannot be taken from
-   * cumulative totals.
-   */
-  const windowSkipMax = useRef(1);
 
   useEffect(() => {
     smoothingConfig.value = {...DEFAULT_SMOOTHING_CONFIG, enabled: options.smoothingEnabled};
   }, [options.smoothingEnabled, smoothingConfig]);
-
-  useEffect(() => {
-    governor.setConfig({enabled: options.dynamicInferenceEnabled});
-  }, [options.dynamicInferenceEnabled, governor]);
 
   const frameOutput = useFrameOutput({
     /**
@@ -331,25 +315,13 @@ export function useTracking(options: UseTrackingOptions) {
         frameSize.value = {width: frame.width, height: frame.height};
       }
 
-      // F15 — skip without touching the detector at all. Counted as dropped:
-      // the frame reached the pipeline and produced no inference, which is what
-      // the droppedFrames column measures. The PWA counts the same event, so the
-      // column means the same thing in both datasets — see docs/pwa-followups.md #8.
-      // Sampled before the check so every camera frame contributes and the
-      // mean divider is time-weighted, matching the PWA.
-      const skip = frameSkip.value;
       // Only this callback writes cameraTotals; see FrameStats. A new run starts
-      // from zero here rather than in start().
+      // from zero here rather than in start(). The skip divider is always 1;
+      // see CameraTotals.
       const run = runId.getBlocking();
       const counts = cameraTotals.getBlocking();
       const totals = counts.runId === run ? counts : {...EMPTY_CAMERA_TOTALS, runId: run};
-      const counted = {...totals, frames: totals.frames + 1, skipSum: totals.skipSum + skip};
-
-      if (counted.frames % skip !== 0) {
-        frame.dispose();
-        cameraTotals.setBlocking({...counted, droppedGovernor: totals.droppedGovernor + 1});
-        return;
-      }
+      const counted = {...totals, frames: totals.frames + 1, skipSum: totals.skipSum + 1};
 
       const scheduled = asyncRunner.runAsync(() => {
         'worklet';
@@ -547,9 +519,10 @@ export function useTracking(options: UseTrackingOptions) {
       // drawnRenderBackend().
       renderBackend: 'skia',
       inferenceThreading: 'async-runner',
-      // F9/F15 — both move the numbers, so both are submitted with them.
+      // F9 moves the numbers, so it is submitted with them. F15's governor
+      // was removed (see CameraTotals); the column stays, always false.
       smoothingEnabled: options.smoothingEnabled,
-      dynamicInferenceEnabled: options.dynamicInferenceEnabled,
+      dynamicInferenceEnabled: false,
       // The delegate *request*. `gpuDelegateActive` records what the engine
       // reported building, which is unreliable on every arm, so it cannot
       // identify a run made with the delegate off.
@@ -557,9 +530,6 @@ export function useTracking(options: UseTrackingOptions) {
     });
     graceState.value = emptyGraceState();
     smoothState.value = emptySmoothingState();
-    governor.reset();
-    frameSkip.value = 1;
-    windowSkipMax.current = 1;
     // The worklets start their figures from zero when they see the new run;
     // until then the tick ignores what they hold.
     const run = runId.getBlocking() + 1;
@@ -572,11 +542,8 @@ export function useTracking(options: UseTrackingOptions) {
     detector,
     options.mode,
     options.smoothingEnabled,
-    options.dynamicInferenceEnabled,
     options.gpuDelegateEnabled,
     tracker,
-    governor,
-    frameSkip,
     running,
     runId,
     graceState,
@@ -610,7 +577,7 @@ export function useTracking(options: UseTrackingOptions) {
       }
       lastStats.current = now;
     }
-    // The dropped-frame counts by cause, and the F15 skip samples.
+    // The dropped-frame counts by cause, and the skip samples (always 1).
     const camera = cameraTotals.getBlocking();
     const before = lastCamera.current;
     if (camera.runId === before.runId) {
@@ -626,7 +593,7 @@ export function useTracking(options: UseTrackingOptions) {
         tracker.recordFrameSkipBatch(
           camera.skipSum - before.skipSum,
           camera.frames - before.frames,
-          windowSkipMax.current,
+          1,
         );
       }
       lastCamera.current = camera;
@@ -652,11 +619,10 @@ export function useTracking(options: UseTrackingOptions) {
     }
     graceState.value = emptyGraceState();
     smoothState.value = emptySmoothingState();
-    governor.reset();
     latest.value = null;
     setMetrics(null);
     return final;
-  }, [detector, tracker, governor, latest, running, graceState, smoothState, drainPending]);
+  }, [detector, tracker, latest, running, graceState, smoothState, drainPending]);
 
   /**
    * Begin a new measurement window without interrupting the camera. Used on a
@@ -664,10 +630,9 @@ export function useTracking(options: UseTrackingOptions) {
    */
   const resetSession = useCallback(() => {
     tracker.reset();
-    windowSkipMax.current = frameSkip.value;
     smoothState.value = emptySmoothingState();
     setMetrics(tracker.getMetrics(getNativeMetrics()));
-  }, [tracker, frameSkip, smoothState]);
+  }, [tracker, smoothState]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -675,18 +640,10 @@ export function useTracking(options: UseTrackingOptions) {
     }
     const id = setInterval(() => {
       drainPending();
-      const snapshot = tracker.getMetrics(getNativeMetrics());
-      setMetrics(snapshot);
-      if (snapshot.avgInferenceTimeMs > 0) {
-        governor.recordInferenceTime(snapshot.avgInferenceTimeMs);
-        const skip = governor.getCurrentFrameSkip();
-        frameSkip.value = skip;
-        windowSkipMax.current = Math.max(windowSkipMax.current, skip);
-        setCurrentFrameSkip(skip);
-      }
+      setMetrics(tracker.getMetrics(getNativeMetrics()));
     }, METRICS_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [isRunning, tracker, governor, frameSkip, drainPending]);
+  }, [isRunning, tracker, drainPending]);
 
   return {
     isRunning,
@@ -694,7 +651,6 @@ export function useTracking(options: UseTrackingOptions) {
     latest,
     frameSize,
     metrics,
-    currentFrameSkip,
     start,
     stop,
     resetSession,

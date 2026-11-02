@@ -51,14 +51,6 @@ export function CameraScreen(): React.JSX.Element {
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(DEFAULT_ACTIVE_FILTERS);
   const [smoothingEnabled, setSmoothingEnabled] = useState(true);
   /**
-   * F15 — off in the survey build (decided 2026-11-01). On the Pixel 7 the
-   * governor's 33 ms target is out of reach, so it raised the frame-skip
-   * divider every ten seconds until its cap of 10 within a 60-second run, and a
-   * run's frame rate came to depend on how long it lasted rather than on the
-   * implementation. The full build keeps it on, and keeps the switch.
-   */
-  const [dynamicInferenceEnabled, setDynamicInferenceEnabled] = useState(!SURVEY_BUILD);
-  /**
    * Requests the MediaPipe GPU delegate. Default on, matching how every
    * session so far was recorded.
    *
@@ -81,10 +73,9 @@ export function CameraScreen(): React.JSX.Element {
   const tracking = useTracking({
     mode: effectiveMode,
     smoothingEnabled,
-    dynamicInferenceEnabled,
     gpuDelegateEnabled,
   });
-  const {isRunning, latest, frameSize, metrics, currentFrameSkip, frameOutput} = tracking;
+  const {isRunning, latest, frameSize, metrics, frameOutput} = tracking;
 
   // A filter that fails to initialise draws nothing and says nothing. Shown in
   // the warning area so a run is never recorded believing a filter was active.
@@ -310,7 +301,6 @@ export function CameraScreen(): React.JSX.Element {
     (key: string, value: boolean) => {
       const setters: Record<string, (next: boolean) => void> = {
         smoothingEnabled: setSmoothingEnabled,
-        dynamicInferenceEnabled: setDynamicInferenceEnabled,
         gpuDelegateEnabled: setGpuDelegateEnabled,
         showPerformance: setShowPerformance,
         showDebug: setShowDebug,
@@ -370,7 +360,7 @@ export function CameraScreen(): React.JSX.Element {
 
         <View style={styles.hudLayer} pointerEvents="none">
           {showPerformance && (
-            <PerformanceHud metrics={metrics} currentFrameSkip={currentFrameSkip} />
+            <PerformanceHud metrics={metrics} />
           )}
           {showDebug && <DebugHud tracking={debugTracking} />}
         </View>
@@ -448,7 +438,6 @@ export function CameraScreen(): React.JSX.Element {
 
         <SettingsSheet
           smoothingEnabled={smoothingEnabled}
-          dynamicInferenceEnabled={dynamicInferenceEnabled}
           gpuDelegateEnabled={gpuDelegateEnabled}
           settingsLocked={isRunning}
           showPerformance={showPerformance}

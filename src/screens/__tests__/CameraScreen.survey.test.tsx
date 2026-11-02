@@ -23,7 +23,6 @@ jest.mock('../../tracking/useTracking', () => {
         latest: {value: null},
         frameSize: {value: {width: 0, height: 0}},
         metrics: null,
-        currentFrameSkip: 1,
         frameOutput: {},
         start: () => setRunning(true),
         stop: () => {
@@ -81,7 +80,6 @@ describe('CameraScreen, survey build', () => {
     const {queryByText, queryByTestId} = await render(<CameraScreen />);
     for (const label of [
       'F9: Glättung (One Euro)',
-      'F15: Dynamische Inferenzrate',
       'GPU-Delegate',
       'Performance-HUD',
       'F14: Debug-HUD',
@@ -114,15 +112,10 @@ describe('CameraScreen, survey build', () => {
     expect(submittedFilters()).toEqual([]);
   });
 
-  it('runs without the adaptive inference governor (F15)', async () => {
-    // Decided 2026-11-01: on the Pixel 7 the governor's 33 ms target is out of
-    // reach, so it raised the frame-skip divider every ten seconds until its
-    // cap of 10 within a 60-second run (sessions 181-184), and a run's frame
-    // rate came to depend on how long it lasted.
+  it('runs with smoothing and the GPU delegate on', async () => {
     const {getByText} = await render(<CameraScreen />);
     await fireEvent.press(getByText('Start'));
     expect(mockOptions.current).toMatchObject({
-      dynamicInferenceEnabled: false,
       smoothingEnabled: true,
       gpuDelegateEnabled: true,
     });
