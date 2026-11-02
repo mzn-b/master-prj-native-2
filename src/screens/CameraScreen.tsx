@@ -23,6 +23,7 @@ import type {Rotation, ViewGeometry} from '../render/coordinates';
 import {FilterLayer} from '../render/filters/FilterLayer';
 import {prewarmCrownModel} from '../render/filters/Crown3D';
 import {APP_VERSION, SURVEY_BUILD} from '../config/buildInfo';
+import {useAutoStop} from '../tracking/useAutoStop';
 import {
   ALL_FILTERS,
   DEFAULT_ACTIVE_FILTERS,
@@ -247,6 +248,10 @@ export function CameraScreen(): React.JSX.Element {
       await submit(final, activeFilterIds());
     }
   }, [tracking, submit, activeFilterIds]);
+
+  // The survey build ends every participant run after 60 s by itself, so run
+  // length does not depend on the operator's reaction (thesis §6.5.3).
+  useAutoStop(isRunning, SURVEY_BUILD, handleStop);
 
   /**
    * A filter toggle closes the current measurement window: submit what was
