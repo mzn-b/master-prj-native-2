@@ -41,7 +41,10 @@ function deviceInfo(): DeviceInfo {
     // whose whole point is comparing devices.
     deviceModel: getNativeMetrics().deviceModel ?? `${Platform.OS} device`,
     osVersion: `${Platform.OS} ${String(Platform.Version)}`,
-    appVersion: APP_VERSION,
+    // A Debug build marks itself, so the analysis, which accepts only the
+    // study builds' exact stamps, can never take its sessions for Release data
+    // (Debug measurements were lost once, thesis §6.3.1).
+    appVersion: __DEV__ ? `${APP_VERSION}-debug` : APP_VERSION,
     screenWidth: Math.round(width),
     screenHeight: Math.round(height),
   };
