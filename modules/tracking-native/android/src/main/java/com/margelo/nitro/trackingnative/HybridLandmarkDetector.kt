@@ -25,6 +25,8 @@ import java.nio.ByteOrder
 class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
 
   private val engine = MediaPipeEngine(VisionContextHolder.requireContext())
+  /** Asks Android for CPU clocks that match the inference load (see InferenceHint). */
+  private val hint = InferenceHint(VisionContextHolder.requireContext())
   private var wantFace = true
   private var wantHand = true
   private var maxFaces = 1
@@ -70,6 +72,7 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     synchronized(lock) {
       isActive = false
       needsConfigure = true
+      hint.close()
       engine.release()
     }
   }
@@ -85,6 +88,7 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     }
 
     if (needsConfigure) {
+      hint.close()
       engine.configure(wantFace, wantHand, maxFaces, maxHands, useGpu)
       needsConfigure = false
     }
@@ -102,6 +106,7 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
     // Bitmap conversion, which is real work Android has to do and the browser
     // does not, and would make the platform look faster than it is. The PWA
     // brackets the equivalent span.
+    hint.begin()
     val started = System.nanoTime()
 
     val nativeFrame = frame as? NativeFrame ?: return empty(timestampMs)
@@ -208,7 +213,9 @@ class HybridLandmarkDetector : HybridLandmarkDetectorSpec() {
       mpImage.close()
     }
 
-    val inferenceMs = (System.nanoTime() - started) / 1_000_000.0
+    val elapsedNanos = System.nanoTime() - started
+    hint.end(elapsedNanos)
+    val inferenceMs = elapsedNanos / 1_000_000.0
 
     return@synchronized RawDetection(
       timestampMs = timestampMs,
