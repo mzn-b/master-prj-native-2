@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {CommonResolutions, useAsyncRunner, useFrameOutput} from 'react-native-vision-camera';
+import {CommonResolutions, useFrameOutput} from 'react-native-vision-camera';
+import {useNewestFrameRunner} from './newestFrameRunner';
 // Shared values are Reanimated's API; react-native-worklets is the runtime beneath it.
 import {useAnimatedReaction, useSharedValue} from 'react-native-reanimated';
 import {createSynchronizable} from 'react-native-worklets';
@@ -22,7 +23,7 @@ const METRICS_INTERVAL_MS = 500;
 /**
  * What the detection worklet has measured since the run began.
  *
- * Cumulative, and written by the async runner's worklet alone; the metrics
+ * Cumulative, and written by the runner's two worklets alone; the metrics
  * tick only reads it and records the difference from the copy it read last
  * time (statsDelta). Held in a Synchronizable, not a shared value.
  *
@@ -99,6 +100,12 @@ interface FrameStats {
   blendshapeActivationCount: number;
   landmarkDeltaSum: number;
   landmarkDeltaCount: number;
+  /**
+   * Frames dropped on the runner because a newer one was queued behind them
+   * (see newestFrameRunner). Busy drops, like the ones the camera thread
+   * counts in CameraTotals, but counted here because only the runner sees them.
+   */
+  superseded: number;
 }
 
 /**
@@ -107,8 +114,9 @@ interface FrameStats {
  * reasons FrameStats gives.
  *
  * F15 is met by the pipeline itself rather than by a frame-skip governor
- * (removed 2026-11-02): the camera hands over a new frame only when the
- * detector is free, so the inference rate follows what the device sustains. The
+ * (removed 2026-11-02): the detector takes the newest frame as soon as it is
+ * free (newestFrameRunner), so the inference rate follows what the device
+ * sustains. The
  * governor could only lower that rate, because skipping frames makes inference
  * less frequent, not faster. The skip divider is therefore always 1, and
  * `skipSum` and `droppedGovernor` stay so the submitted columns keep their
@@ -154,6 +162,7 @@ const EMPTY_STATS: FrameStats = {
   blendshapeActivationCount: 0,
   landmarkDeltaSum: 0,
   landmarkDeltaCount: 0,
+  superseded: 0,
 };
 
 const EMPTY_CAMERA_TOTALS: CameraTotals = {
@@ -257,7 +266,7 @@ export function useTracking(options: UseTrackingOptions) {
   const tracker = useRef(new PerformanceTracker()).current;
   /** Whether this session's model load time and delegate state are recorded. */
   const engineStateRecorded = useRef(false);
-  const asyncRunner = useAsyncRunner();
+  const runner = useNewestFrameRunner();
 
   // Worklet-owned state. Everything the frame callback touches must be a
   // SharedValue or a HybridObject — a JS class instance has no methods on the
@@ -323,156 +332,169 @@ export function useTracking(options: UseTrackingOptions) {
       const totals = counts.runId === run ? counts : {...EMPTY_CAMERA_TOTALS, runId: run};
       const counted = {...totals, frames: totals.frames + 1, skipSum: totals.skipSum + 1};
 
-      const scheduled = asyncRunner.runAsync(() => {
-        'worklet';
-        const startedAt = Date.now();
-        // Only this worklet writes stats, and the runner takes one job at a
-        // time; see FrameStats. A new run starts from zero here rather than in
-        // start(), so a job of the previous run that is still finishing cannot
-        // write over the reset. `run` is the run the frame arrived in.
-        const stored = stats.getBlocking();
-        const previous: FrameStats = stored.runId === run ? stored : {...EMPTY_STATS, runId: run};
-        try {
-          // Supply our own millisecond clock rather than frame.timestamp: its
-          // units differ per platform (iOS reports seconds), and MediaPipe's
-          // VIDEO mode silently returns nothing when the millisecond value does
-          // not strictly increase.
-          // Keep this worklet minimal: the async runner has its own runtime,
-          // where an imported worklet arrives as an object rather than a
-          // function. Only HybridObjects and SharedValues are safe to touch.
-          const detection = boxedDetector.unbox().detect(frame, startedAt);
-          latestRaw.value = detection;
+      const scheduled = runner.submit(
+        () => {
+          'worklet';
+          const startedAt = Date.now();
+          // Only the runner's two worklets write stats, and the runner takes one
+          // job at a time; see FrameStats. A new run starts from zero here rather than in
+          // start(), so a job of the previous run that is still finishing cannot
+          // write over the reset. `run` is the run the frame arrived in.
+          const stored = stats.getBlocking();
+          const previous: FrameStats = stored.runId === run ? stored : {...EMPTY_STATS, runId: run};
+          try {
+            // Supply our own millisecond clock rather than frame.timestamp: its
+            // units differ per platform (iOS reports seconds), and MediaPipe's
+            // VIDEO mode silently returns nothing when the millisecond value does
+            // not strictly increase.
+            // Keep this worklet minimal: the async runner has its own runtime,
+            // where an imported worklet arrives as an object rather than a
+            // function. Only HybridObjects and SharedValues are safe to touch.
+            const detection = boxedDetector.unbox().detect(frame, startedAt);
+            latestRaw.value = detection;
 
-          const finishedAt = Date.now();
-          const interval = previous.lastAtMs > 0 ? finishedAt - previous.lastAtMs : 0;
-          // Quality signals, read from the detection MediaPipe just produced.
-          // The PWA reads these from the smoothed DTO because that is what it
-          // draws; here the smoothing happens downstream on the UI runtime, so
-          // these are the raw values. Documented in METRICS.md — the jitter
-          // figures are therefore pre-smoothing on native and post-smoothing in
-          // the PWA, and must not be compared without saying so.
-          let gestureSum = previous.gestureConfidenceSum;
-          let gestureCount = previous.gestureConfidenceCount;
-          for (const hand of detection.hands) {
-            if (hand.gestureScore !== undefined) {
-              gestureSum += hand.gestureScore;
-              gestureCount += 1;
+            const finishedAt = Date.now();
+            const interval = previous.lastAtMs > 0 ? finishedAt - previous.lastAtMs : 0;
+            // Quality signals, read from the detection MediaPipe just produced.
+            // The PWA reads these from the smoothed DTO because that is what it
+            // draws; here the smoothing happens downstream on the UI runtime, so
+            // these are the raw values. Documented in METRICS.md — the jitter
+            // figures are therefore pre-smoothing on native and post-smoothing in
+            // the PWA, and must not be compared without saying so.
+            let gestureSum = previous.gestureConfidenceSum;
+            let gestureCount = previous.gestureConfidenceCount;
+            for (const hand of detection.hands) {
+              if (hand.gestureScore !== undefined) {
+                gestureSum += hand.gestureScore;
+                gestureCount += 1;
+              }
             }
-          }
 
-          // NF7 — the same state machine the PWA runs in recordFrameEnd, at
-          // the same granularity. `detected` is raw detector output, which is
-          // also what the PWA counts (its grace is excluded from the metrics
-          // via rawFaceCount/rawHandCount).
-          const detected = detection.faceCount + detection.handCount > 0;
-          let lostEvents = previous.lostEvents;
-          let recoverySumMs = previous.recoverySumMs;
-          let recoveryCount = previous.recoveryCount;
-          let lostAtMs = previous.lostAtMs;
-          let consecutiveLoss = previous.consecutiveLoss;
-          if (previous.trackingValid && !detected) {
-            lostEvents += 1;
-            lostAtMs = finishedAt;
-            consecutiveLoss = 1;
-          } else if (!previous.trackingValid && detected && lostAtMs > 0) {
-            recoverySumMs += finishedAt - lostAtMs;
-            recoveryCount += 1;
-            lostAtMs = 0;
-            consecutiveLoss = 0;
-          } else if (!detected) {
-            consecutiveLoss += 1;
-          } else {
-            consecutiveLoss = 0;
-          }
-
-          let blendSum = previous.blendshapeActivationSum;
-          let blendCount = previous.blendshapeActivationCount;
-          const shapes = new Float32Array(detection.blendshapes);
-          if (shapes.length > 0) {
-            let top = 0;
-            for (let i = 0; i < shapes.length; i++) {
-              if (shapes[i] > top) top = shapes[i];
+            // NF7 — the same state machine the PWA runs in recordFrameEnd, at
+            // the same granularity. `detected` is raw detector output, which is
+            // also what the PWA counts (its grace is excluded from the metrics
+            // via rawFaceCount/rawHandCount).
+            const detected = detection.faceCount + detection.handCount > 0;
+            let lostEvents = previous.lostEvents;
+            let recoverySumMs = previous.recoverySumMs;
+            let recoveryCount = previous.recoveryCount;
+            let lostAtMs = previous.lostAtMs;
+            let consecutiveLoss = previous.consecutiveLoss;
+            if (previous.trackingValid && !detected) {
+              lostEvents += 1;
+              lostAtMs = finishedAt;
+              consecutiveLoss = 1;
+            } else if (!previous.trackingValid && detected && lostAtMs > 0) {
+              recoverySumMs += finishedAt - lostAtMs;
+              recoveryCount += 1;
+              lostAtMs = 0;
+              consecutiveLoss = 0;
+            } else if (!detected) {
+              consecutiveLoss += 1;
+            } else {
+              consecutiveLoss = 0;
             }
-            blendSum += top;
-            blendCount += 1;
-          }
 
-          let deltaSum = previous.landmarkDeltaSum;
-          let deltaCount = previous.landmarkDeltaCount;
-          let lastNoseX = previous.lastNoseX;
-          let lastNoseY = previous.lastNoseY;
-          if (detection.faceCount > 0) {
-            const values = new Float32Array(detection.landmarks);
-            const at = NOSE_TIP_INDEX * VALUES_PER_POINT;
-            const nx = values[at];
-            const ny = values[at + 1];
-            if (lastNoseX >= 0) {
-              const dx = nx - lastNoseX;
-              const dy = ny - lastNoseY;
-              deltaSum += Math.sqrt(dx * dx + dy * dy);
-              deltaCount += 1;
+            let blendSum = previous.blendshapeActivationSum;
+            let blendCount = previous.blendshapeActivationCount;
+            const shapes = new Float32Array(detection.blendshapes);
+            if (shapes.length > 0) {
+              let top = 0;
+              for (let i = 0; i < shapes.length; i++) {
+                if (shapes[i] > top) top = shapes[i];
+              }
+              blendSum += top;
+              blendCount += 1;
             }
-            lastNoseX = nx;
-            lastNoseY = ny;
-          } else {
-            // Tracking lost: the next delta would measure re-acquisition.
-            lastNoseX = -1;
-          }
 
-          stats.setBlocking({
-            runId: run,
-            frames: previous.frames + 1,
-            errors: previous.errors,
-            intervalSamples: [...previous.intervalSamples.slice(1 - SAMPLE_WINDOW), interval],
-            inferenceSamples: [
-              ...previous.inferenceSamples.slice(1 - SAMPLE_WINDOW),
-              detection.inferenceTimeMs,
-            ],
-            lossSamples: [...previous.lossSamples.slice(1 - SAMPLE_WINDOW), consecutiveLoss],
-            gestureConfidenceSum: gestureSum,
-            gestureConfidenceCount: gestureCount,
-            blendshapeActivationSum: blendSum,
-            blendshapeActivationCount: blendCount,
-            landmarkDeltaSum: deltaSum,
-            landmarkDeltaCount: deltaCount,
-            intervalSumMs: previous.intervalSumMs + interval,
-            inferenceSumMs: previous.inferenceSumMs + detection.inferenceTimeMs,
-            processingSumMs: previous.processingSumMs + (finishedAt - startedAt),
-            facesSum: previous.facesSum + detection.faceCount,
-            handsSum: previous.handsSum + detection.handCount,
-            trackedFrames: previous.trackedFrames + (detected ? 1 : 0),
-            lostEvents,
-            recoverySumMs,
-            recoveryCount,
-            lastAtMs: finishedAt,
-            firstTrackedAtMs:
-              previous.firstTrackedAtMs > 0
-                ? previous.firstTrackedAtMs
-                : detected
-                  ? finishedAt
-                  : 0,
-            trackingValid: detected,
-            lostAtMs,
-            consecutiveLoss,
-            lastNoseX,
-            lastNoseY,
-          });
-        } catch {
-          // Counted rather than rethrown: the async runner has nowhere to
-          // surface a throw, and an uncounted failure is indistinguishable from
-          // a frame that simply found nothing. The PWA has always counted
-          // these (its engine reports through `onError`); a metric only one
-          // platform can report makes that platform look worse for a reason
-          // that is not about the platform.
-          stats.setBlocking({...previous, errors: previous.errors + 1});
-        } finally {
+            let deltaSum = previous.landmarkDeltaSum;
+            let deltaCount = previous.landmarkDeltaCount;
+            let lastNoseX = previous.lastNoseX;
+            let lastNoseY = previous.lastNoseY;
+            if (detection.faceCount > 0) {
+              const values = new Float32Array(detection.landmarks);
+              const at = NOSE_TIP_INDEX * VALUES_PER_POINT;
+              const nx = values[at];
+              const ny = values[at + 1];
+              if (lastNoseX >= 0) {
+                const dx = nx - lastNoseX;
+                const dy = ny - lastNoseY;
+                deltaSum += Math.sqrt(dx * dx + dy * dy);
+                deltaCount += 1;
+              }
+              lastNoseX = nx;
+              lastNoseY = ny;
+            } else {
+              // Tracking lost: the next delta would measure re-acquisition.
+              lastNoseX = -1;
+            }
+
+            stats.setBlocking({
+              runId: run,
+              frames: previous.frames + 1,
+              errors: previous.errors,
+              intervalSamples: [...previous.intervalSamples.slice(1 - SAMPLE_WINDOW), interval],
+              inferenceSamples: [
+                ...previous.inferenceSamples.slice(1 - SAMPLE_WINDOW),
+                detection.inferenceTimeMs,
+              ],
+              lossSamples: [...previous.lossSamples.slice(1 - SAMPLE_WINDOW), consecutiveLoss],
+              gestureConfidenceSum: gestureSum,
+              gestureConfidenceCount: gestureCount,
+              blendshapeActivationSum: blendSum,
+              blendshapeActivationCount: blendCount,
+              landmarkDeltaSum: deltaSum,
+              landmarkDeltaCount: deltaCount,
+              intervalSumMs: previous.intervalSumMs + interval,
+              inferenceSumMs: previous.inferenceSumMs + detection.inferenceTimeMs,
+              processingSumMs: previous.processingSumMs + (finishedAt - startedAt),
+              facesSum: previous.facesSum + detection.faceCount,
+              handsSum: previous.handsSum + detection.handCount,
+              trackedFrames: previous.trackedFrames + (detected ? 1 : 0),
+              lostEvents,
+              recoverySumMs,
+              recoveryCount,
+              lastAtMs: finishedAt,
+              firstTrackedAtMs:
+                previous.firstTrackedAtMs > 0
+                  ? previous.firstTrackedAtMs
+                  : detected
+                    ? finishedAt
+                    : 0,
+              trackingValid: detected,
+              lostAtMs,
+              consecutiveLoss,
+              lastNoseX,
+              lastNoseY,
+              superseded: previous.superseded,
+            });
+          } catch {
+            // Counted rather than rethrown: the async runner has nowhere to
+            // surface a throw, and an uncounted failure is indistinguishable from
+            // a frame that simply found nothing. The PWA has always counted
+            // these (its engine reports through `onError`); a metric only one
+            // platform can report makes that platform look worse for a reason
+            // that is not about the platform.
+            stats.setBlocking({...previous, errors: previous.errors + 1});
+          } finally {
+            frame.dispose();
+          }
+        },
+        () => {
+          'worklet';
+          // A newer frame is queued behind this one, so this one is not worth
+          // running: a busy drop, counted on the runner, which alone sees it.
+          const stored = stats.getBlocking();
+          const previous: FrameStats = stored.runId === run ? stored : {...EMPTY_STATS, runId: run};
+          stats.setBlocking({...previous, superseded: previous.superseded + 1});
           frame.dispose();
-        }
-      });
+        },
+      );
 
       if (!scheduled) {
-        // NF1 — inference is behind. Drop this frame and count it honestly
-        // rather than queueing work the device cannot keep up with.
+        // NF1 — inference is far behind and the queue is full. Drop this frame
+        // and count it honestly rather than queueing more than the device can
+        // catch up with.
         frame.dispose();
       }
       cameraTotals.setBlocking({...counted, droppedBusy: totals.droppedBusy + (scheduled ? 0 : 1)});
@@ -574,6 +596,9 @@ export function useTracking(options: UseTrackingOptions) {
       }
       for (let i = previous.errors; i < now.errors; i++) {
         tracker.recordError();
+      }
+      if (now.superseded > previous.superseded) {
+        tracker.recordDroppedFrame('busy', now.superseded - previous.superseded);
       }
       lastStats.current = now;
     }

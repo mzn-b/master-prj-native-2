@@ -68,7 +68,9 @@ jest.mock('react-native-vision-camera', () => ({
 jest.mock('react-native-nitro-modules', () => ({
   NitroModules: {
     box: (obj) => ({unbox: () => obj}),
-    createHybridObject: () => ({}),
+    // The detection runner asks for a thread of its own (newestFrameRunner.ts).
+    createHybridObject: (name) =>
+      name === 'NativeThreadFactory' ? {createNativeThread: (id) => ({id})} : {},
   },
 }));
 
@@ -90,6 +92,9 @@ jest.mock('tracking-native', () => ({
  * synchronously; a plain holder behaves the same on one thread.
  */
 jest.mock('react-native-worklets', () => ({
+  // Runs the job at once: under jest there is one thread, so a job queued on
+  // the detection runner's runtime is simply run.
+  scheduleOnRuntime: (_runtime, job) => job(),
   createSynchronizable: (initial) => {
     let value = initial;
     return {
@@ -101,4 +106,9 @@ jest.mock('react-native-worklets', () => ({
       unlock: () => {},
     };
   },
+}));
+
+/** The detection runner's runtime is a native thread; see newestFrameRunner.ts. */
+jest.mock('react-native-vision-camera-worklets', () => ({
+  createWorkletRuntimeForThread: () => ({}),
 }));

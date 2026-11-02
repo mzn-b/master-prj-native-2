@@ -100,7 +100,29 @@ function detection({
   };
 }
 
-let busy = false;
+/**
+ * The detection runner as the hook sees it: `mockQueueFull` refuses a frame
+ * (the queue is full), `mockSuperseded` drops it on the runner because a newer
+ * one is queued.
+ * The queueing rule itself is tested in newestFrameRunner.test.ts.
+ */
+let mockQueueFull = false;
+let mockSuperseded = false;
+jest.mock('../newestFrameRunner', () => ({
+  useNewestFrameRunner: () => ({
+    submit: (task: () => void, drop: () => void) => {
+      if (mockQueueFull) {
+        return false;
+      }
+      if (mockSuperseded) {
+        drop();
+      } else {
+        task();
+      }
+      return true;
+    },
+  }),
+}));
 
 function frame() {
   return {width: 1280, height: 720, dispose: jest.fn()};
@@ -132,19 +154,11 @@ async function feed(onFrame: (f: ReturnType<typeof frame>) => void, spec: Spec |
 
 beforeEach(() => {
   jest.useFakeTimers({now: new Date('2026-10-28T12:00:00Z')});
-  busy = false;
+  mockQueueFull = false;
+  mockSuperseded = false;
   mockDetector.configure.mockReset();
   mockDetector.detect.mockReset();
   mockDetector.release.mockReset();
-  (VisionCamera.useAsyncRunner as jest.Mock).mockReturnValue({
-    runAsync: (work: () => void) => {
-      if (busy) {
-        return false;
-      }
-      work();
-      return true;
-    },
-  });
 });
 
 afterEach(() => {
@@ -220,11 +234,29 @@ describe('useTracking', () => {
     expect(metrics).toMatchObject({frameCount: 1, errorCount: 1});
   });
 
-  it('counts a frame the busy runner refused as a busy drop', async () => {
+  it('counts a frame superseded by a newer one as a busy drop', async () => {
     const {hook, onFrame} = await setup();
     await act(() => hook.result.current.start());
     await feed(onFrame, {});
-    busy = true;
+    mockSuperseded = true;
+    const dropped = frame();
+    onFrame(dropped);
+    const metrics = await act(() => hook.result.current.stop());
+    expect(dropped.dispose).toHaveBeenCalled();
+    expect(mockDetector.detect).toHaveBeenCalledTimes(1);
+    expect(metrics).toMatchObject({
+      frameCount: 1,
+      droppedFramesBusy: 1,
+      droppedFramesGovernor: 0,
+      droppedFrames: 1,
+    });
+  });
+
+  it('counts a frame refused by the full queue as a busy drop', async () => {
+    const {hook, onFrame} = await setup();
+    await act(() => hook.result.current.start());
+    await feed(onFrame, {});
+    mockQueueFull = true;
     const refused = frame();
     onFrame(refused);
     const metrics = await act(() => hook.result.current.stop());
@@ -367,7 +399,7 @@ describe('useTracking', () => {
     const {hook, onFrame} = await setup();
     await act(() => hook.result.current.start());
     await feed(onFrame, {});
-    busy = true;
+    mockQueueFull = true;
     onFrame(frame());
     const original = PerformanceTracker.prototype.recordDroppedFrame;
     const spy = jest
