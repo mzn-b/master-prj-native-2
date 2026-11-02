@@ -40,6 +40,12 @@ describe('submitTrackingSession', () => {
     expect(init.headers['Content-Type']).toBe('application/json');
   });
 
+  it('sends the study write token the backend requires', async () => {
+    await submitTrackingSession('combined', metrics, []);
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(init.headers).toHaveProperty('X-Study-Token');
+  });
+
   it('sends a native platform value and the active filters', async () => {
     await submitTrackingSession('combined', metrics, ['crown', 'sparkles']);
     const body = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body);

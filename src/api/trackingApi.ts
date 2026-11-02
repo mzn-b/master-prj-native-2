@@ -2,6 +2,8 @@ import {Dimensions, Platform} from 'react-native';
 import type {PerformanceMetricsDTO, TrackingMode} from '../domain/tracking.dto';
 import {getNativeMetrics} from '../metrics/nativeMetrics';
 import {API_BASE_URL} from './config';
+// Written per build by scripts/study-token.mjs from STUDY_WRITE_TOKEN (git-ignored).
+import {STUDY_WRITE_TOKEN} from '../config/studyToken.generated';
 // Generated per build by scripts/stamp-build.mjs so a session can be traced
 // back to the code that produced it.
 import {APP_VERSION} from '../config/buildInfo';
@@ -89,7 +91,7 @@ export async function submitTrackingSession(
   try {
     const response = await fetch(`${API_BASE_URL}/api/tracking/sessions`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-Study-Token': STUDY_WRITE_TOKEN},
       body: JSON.stringify(request),
     });
     if (!response.ok) {

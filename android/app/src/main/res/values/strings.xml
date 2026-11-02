@@ -1,3 +1,5 @@
 <resources>
-    <string name="app_name">MasterPrjNative2</string>
+    <!-- Neutral, and the same as the web app's, so the home screen does not tell
+         participants which implementation is which (thesis §6.5.1). -->
+    <string name="app_name">AR-Studie</string>
 </resources>

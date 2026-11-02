@@ -115,6 +115,9 @@ export type PerformanceMetricsDTO = {
     // Capture resolution actually delivered by the camera, not the one requested.
     frameWidth?: number;
     frameHeight?: number;
+    // Camera frame rate the capture pipeline settled on (both apps request 30):
+    // PWA from the video track's settings, native from the negotiated session.
+    cameraFps?: number;
 
     // Which graphics backend drew the overlay.
     // PWA: "webgpu" | "webgl2" | "webgl". Native: "skia".

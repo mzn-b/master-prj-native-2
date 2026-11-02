@@ -9,12 +9,12 @@
     "start": "react-native start",
     "test": "jest",
     "nitrogen": "cd modules/tracking-native && nitrogen",
-    "stamp": "node scripts/stamp-build.mjs",
-    "prestart": "node scripts/stamp-build.mjs && node scripts/embed-assets.mjs",
-    "preandroid": "node scripts/stamp-build.mjs && node scripts/embed-assets.mjs",
-    "preios": "node scripts/stamp-build.mjs && node scripts/embed-assets.mjs",
+    "stamp": "node scripts/stamp-build.mjs && node scripts/study-token.mjs",
+    "prestart": "node scripts/stamp-build.mjs && node scripts/study-token.mjs && node scripts/embed-assets.mjs",
+    "preandroid": "node scripts/stamp-build.mjs && node scripts/study-token.mjs && node scripts/embed-assets.mjs",
+    "preios": "node scripts/stamp-build.mjs && node scripts/study-token.mjs && node scripts/embed-assets.mjs",
     "embed": "node scripts/embed-assets.mjs",
-    "pretest": "node scripts/embed-assets.mjs"
+    "pretest": "node scripts/embed-assets.mjs && node scripts/study-token.mjs"
   },
   "dependencies": {
     "@react-native/new-app-screen": "0.87.1",

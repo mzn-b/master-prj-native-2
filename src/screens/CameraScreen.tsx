@@ -42,6 +42,8 @@ import {SettingsSheet} from '../ui/SettingsSheet';
 
 /** MediaPipe returns landmarks in the frame's own orientation. */
 const FRAME_ROTATION: Rotation = Platform.OS === 'ios' ? 90 : 270;
+/** Camera frame rate requested, as in the PWA (its CAPTURE_FPS). */
+const CAPTURE_FPS = 30;
 
 export function CameraScreen(): React.JSX.Element {
   // The camera preview runs edge to edge, under the status bar, so the HUDs
@@ -122,12 +124,19 @@ export function CameraScreen(): React.JSX.Element {
    * field of view and every overlay lands uniformly too large.
    */
   const previewOutput = usePreviewOutput();
+  // The camera rate both apps request (the PWA's CAPTURE_FPS); what the session
+  // settled on is submitted as cameraFps (thesis §6.3).
+  const cameraFpsRef = useRef<number | undefined>(undefined);
   useCamera({
     // The hook cannot be conditional, so fall back to the position when the
     // device list has not resolved yet; it resolves to the same camera.
     device: device ?? 'front',
     isActive: isRunning,
     outputs: [previewOutput, frameOutput],
+    constraints: [{fps: CAPTURE_FPS}],
+    onSessionConfigSelected: config => {
+      cameraFpsRef.current = config.selectedFPS;
+    },
     onError: error => setCameraError(error.message),
   });
 
@@ -207,7 +216,7 @@ export function CameraScreen(): React.JSX.Element {
         );
         await submitTrackingSession(
           effectiveMode,
-          {...sessionMetrics, renderBackend},
+          {...sessionMetrics, renderBackend, cameraFps: cameraFpsRef.current},
           filters,
         );
       } finally {
@@ -372,7 +381,13 @@ export function CameraScreen(): React.JSX.Element {
         </View>
       </View>
 
-      <ScrollView testID="control-panel" style={styles.panel} contentContainerStyle={styles.panelContent}>
+      {/* The app draws edge to edge, so on the Pixel the panel ran under the
+          gesture bar, which crossed the view buttons (Figure 8 of the thesis,
+          build eb9a89e). The PWA's page ends above it; inset by the same amount. */}
+      <ScrollView
+        testID="control-panel"
+        style={styles.panel}
+        contentContainerStyle={[styles.panelContent, {paddingBottom: 12 + insets.bottom}]}>
         <SessionControls
           isRunning={isRunning}
           canStart={canStartTracking(capabilities)}
@@ -425,7 +440,7 @@ export function CameraScreen(): React.JSX.Element {
               disabled={isRunning}
               onPress={() => handleAppMode(candidate)}
               style={[styles.tab, appMode === candidate && styles.tabActive]}>
-              <Text style={styles.tabLabel}>
+              <Text style={[styles.tabLabel, appMode === candidate && styles.tabLabelActive]}>
                 {candidate === 'landmarks' ? 'Landmarks' : 'Filters'}
               </Text>
             </TouchableOpacity>
@@ -475,7 +490,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#374151',
     overflow: 'hidden',
   },
-  tabActive: {backgroundColor: '#4f46e5', fontWeight: '700'},
+  tabActive: {backgroundColor: '#4f46e5'},
+  // On the label, not the tab: a View ignores fontWeight, so the active view's
+  // label was regular here and bold in the PWA.
+  tabLabelActive: {fontWeight: '700'},
   error: {color: '#fca5a5'},
   warning: {color: '#fcd34d'},
   buildStamp: {color: '#6b7280', fontSize: 11},

@@ -1,0 +1,4 @@
+<resources>
+    <!-- The apps' shared dark background (#111827), also the web app's theme colour. -->
+    <color name="ic_launcher_background">#111827</color>
+</resources>
