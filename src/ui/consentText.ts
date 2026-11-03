@@ -33,9 +33,12 @@
  * a plain-language summary and glosses replace the bare technical terms; the
  * network type and speed are no longer collected; and the decline message no
  * longer tells a native-app user to reload a page.
+ *
+ * Version 1.4 (3 November 2026): the latest date for anonymisation is
+ * 31 December 2027 (the author's decision), not 31 July 2027.
  */
 
-export const CONSENT_VERSION = "1.3";
+export const CONSENT_VERSION = "1.4";
 
 export const CONSENT_TITLE = "Einwilligung zur Teilnahme";
 
@@ -122,7 +125,7 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
     {
         heading: "Speicherdauer",
         body:
-            "Bis zum Abschluss der Masterprüfung, längstens bis 31. Juli 2027, " +
+            "Bis zum Abschluss der Masterprüfung, längstens bis 31. Dezember 2027, " +
             "bleiben die Messwerte über den Zeitpunkt der Messung zuordenbar, damit " +
             "die Ergebnisse bei der Begutachtung und der Prüfung überprüft werden " +
             "können. Danach werden das Sitzungsprotokoll und alle Zeitangaben " +
