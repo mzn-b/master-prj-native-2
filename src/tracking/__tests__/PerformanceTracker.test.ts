@@ -354,6 +354,26 @@ describe('PerformanceTracker percentiles from batched frames', () => {
     expect(m.inferenceTimeP50Ms).toBeUndefined();
     expect(m.frameIntervalP95Ms).toBeUndefined();
   });
+
+  it('submits the per-frame series the percentiles are taken from, in order', () => {
+    // Since 1.2.0 the analysis recomputes the percentiles from these, so they
+    // must hold exactly the post-warm-up samples, unsorted, as on the PWA.
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch(Array(WARMUP_FRAMES).fill(500)));
+    t.recordBatch(batch([12.345, 9, 15], [33, 34, 33]));
+    const m = t.getMetrics({}, true);
+    expect(m.inferenceTimeSeriesMs).toEqual([12.35, 9, 15]);
+    expect(m.frameIntervalSeriesMs).toEqual([33, 34, 33]);
+  });
+
+  it('leaves the series out of the metrics read for the live display', () => {
+    const t = new PerformanceTracker();
+    t.start();
+    t.recordBatch(batch(Array(WARMUP_FRAMES + 3).fill(10)));
+    expect(t.getMetrics().inferenceTimeSeriesMs).toBeUndefined();
+    expect(t.getMetrics().frameIntervalSeriesMs).toBeUndefined();
+  });
 });
 
 describe('PerformanceTracker detection quality from the worklet', () => {

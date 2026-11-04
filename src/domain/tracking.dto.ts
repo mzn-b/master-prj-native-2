@@ -142,6 +142,14 @@ export type PerformanceMetricsDTO = {
     frameIntervalP50Ms?: number;
     frameIntervalP95Ms?: number;
     frameIntervalP99Ms?: number;
+    // Per-frame series (since 1.2.0, 2026-11-04): every value the percentiles
+    // above are taken from, in the order the frames completed, warm-up frames
+    // excluded, rounded to 0.01 ms. The analysis computes the medians and
+    // percentiles from these with one piece of code for all four arms, instead
+    // of trusting two separately written trackers; the P50/P95/P99 fields
+    // remain as a cross-check. Absent from sessions of earlier builds.
+    inferenceTimeSeriesMs?: number[];
+    frameIntervalSeriesMs?: number[];
 
     // ── Rendering (F4, F11) — PWA only ───────────────────────────────────────
     // Drawing was previously invisible: frameProcessingTimeMs spans the detect

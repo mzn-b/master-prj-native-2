@@ -48,6 +48,14 @@ class SampleSeries {
     return total / this.samples.length;
   }
 
+  /**
+   * The samples in recorded order, rounded to 0.01 ms, for the per-frame series
+   * submitted with the session (since 1.2.0). A copy, as on the PWA.
+   */
+  values(): number[] {
+    return this.samples.map((v) => Math.round(v * 100) / 100);
+  }
+
   /** Nearest-rank, so a reported p95 is a value that actually occurred. */
   percentile(p: number): number | undefined {
     if (this.samples.length === 0) return undefined;
@@ -476,7 +484,12 @@ export class PerformanceTracker {
     return Math.round(value * factor) / factor;
   }
 
-  getMetrics(native: NativeMetricsSnapshot = {}): PerformanceMetricsDTO {
+  /**
+   * `withSeries` adds the per-frame series (since 1.2.0). Only the submission
+   * asks for them: the live HUD reads this every second, and copying two arrays
+   * of up to ~1,800 values each time would add allocations to the measured run.
+   */
+  getMetrics(native: NativeMetricsSnapshot = {}, withSeries = false): PerformanceMetricsDTO {
     const now = Date.now();
     const sessionDurationMs = now - this.startTime;
     const avgFrameTime = this.frameTimes.average();
@@ -592,6 +605,8 @@ export class PerformanceTracker {
       frameIntervalP50Ms: opt(this.frameIntervalSeries.percentile(0.5), 1),
       frameIntervalP95Ms: opt(this.frameIntervalSeries.percentile(0.95), 1),
       frameIntervalP99Ms: opt(this.frameIntervalSeries.percentile(0.99), 1),
+      inferenceTimeSeriesMs: withSeries ? this.inferenceSeries.values() : undefined,
+      frameIntervalSeriesMs: withSeries ? this.frameIntervalSeries.values() : undefined,
 
       // Render time is deliberately absent here, not merely unimplemented.
       // The PWA has one imperative draw call to bracket; this app renders

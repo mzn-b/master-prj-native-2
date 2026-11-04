@@ -644,7 +644,7 @@ export function useTracking(options: UseTrackingOptions) {
     // were left out although they fell inside the session.
     running.setBlocking(false);
     drainPending();
-    const final = tracker.getMetrics(getNativeMetrics());
+    const final = tracker.getMetrics(getNativeMetrics(), true);
     setIsRunning(false);
     try {
       detector.release();
