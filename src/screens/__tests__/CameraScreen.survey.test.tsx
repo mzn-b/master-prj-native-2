@@ -43,6 +43,18 @@ jest.mock('../../config/buildInfo', () => ({
   BUILT_AT: '2026-10-28T00:00:00.000Z',
   SURVEY_BUILD: true,
 }));
+// A device warning, so the tests can see whether the build shows the list
+// (audit3 CODE1-6: hidden in survey builds, shown in full builds).
+jest.mock('../../tracking/deviceCapabilities', () => {
+  const actual = jest.requireActual('../../tracking/deviceCapabilities');
+  return {
+    ...actual,
+    checkDeviceCapabilities: (input: unknown) => ({
+      ...actual.checkDeviceCapabilities(input),
+      warnings: ['Wenig Arbeitsspeicher verfügbar (900 MB). Die Bildrate kann darunter leiden.'],
+    }),
+  };
+});
 
 /**
  * In the survey build participants hold the phone and the operator selects one
@@ -67,6 +79,11 @@ describe('CameraScreen, survey build', () => {
     expect(getByText('Landmarks')).toBeTruthy();
     expect(getByText('Filters')).toBeTruthy();
     expect(getByText(/\(Studie\)/)).toBeTruthy();
+  });
+
+  it('shows no device warning, as the web survey build shows none', async () => {
+    const {queryByText} = await render(<CameraScreen />);
+    expect(queryByText(/Wenig Arbeitsspeicher/)).toBeNull();
   });
 
   it('offers no tracking-mode choice', async () => {

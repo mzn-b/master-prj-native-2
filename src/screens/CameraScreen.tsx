@@ -430,11 +430,14 @@ export function CameraScreen(): React.JSX.Element {
           instead of by inference.
         */}
         <Text style={styles.buildStamp}>{`Build ${APP_VERSION}${SURVEY_BUILD ? ' (Studie)' : ''}`}</Text>
-        {capabilities.warnings.map(warning => (
-          <Text key={warning} style={styles.warning}>
-            {warning}
-          </Text>
-        ))}
+        {/* Hidden in survey builds, as in the web app, whose list on the
+            iPhone names Safari (audit3 CODE1-6). */}
+        {!SURVEY_BUILD &&
+          capabilities.warnings.map(warning => (
+            <Text key={warning} style={styles.warning}>
+              {warning}
+            </Text>
+          ))}
         {filterError !== null && (
           <Text style={styles.warning}>{`Filter-Fehler: ${filterError}`}</Text>
         )}
