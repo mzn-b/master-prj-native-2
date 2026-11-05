@@ -72,6 +72,10 @@ export function CameraScreen(): React.JSX.Element {
   const [showPerformance, setShowPerformance] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  // After each upload the status line says for three seconds whether the record
+  // arrived, worded and timed as in the web application, so that the line is no
+  // cue to which implementation is which (audit3 P-RES-14).
+  const [uploadStatus, setUploadStatus] = useState<'success' | 'error' | null>(null);
   const [debugTracking, setDebugTracking] = useState<TrackingDTO | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [preview, setPreview] = useState({width: 0, height: 0});
@@ -206,6 +210,8 @@ export function CameraScreen(): React.JSX.Element {
         return;
       }
       setIsUploading(true);
+      setUploadStatus(null);
+      let delivered = false;
       try {
         // What drew this session, resolved at submission like the filters
         // themselves. The crown has no WebGL path here: react-native-webgpu
@@ -215,13 +221,16 @@ export function CameraScreen(): React.JSX.Element {
           activeFiltersRef.current,
           {landmarks: 'skia', flat: 'skia', crown: 'webgpu'},
         );
-        await submitTrackingSession(
+        const response = await submitTrackingSession(
           effectiveMode,
           {...sessionMetrics, renderBackend, cameraFps: cameraFpsRef.current},
           filters,
         );
+        delivered = response !== null;
       } finally {
         setIsUploading(false);
+        setUploadStatus(delivered ? 'success' : 'error');
+        setTimeout(() => setUploadStatus(null), 3000);
       }
     },
     [effectiveMode],
@@ -397,8 +406,10 @@ export function CameraScreen(): React.JSX.Element {
           isRunning={isRunning}
           canStart={canStartTracking(capabilities)}
           isUploading={isUploading}
+          uploadStatus={uploadStatus}
           onStart={() => {
             setCameraError(null);
+            setUploadStatus(null);
             tracking.start();
           }}
           onStop={handleStop}

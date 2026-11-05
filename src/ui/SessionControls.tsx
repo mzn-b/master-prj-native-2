@@ -5,6 +5,8 @@ export interface SessionControlsProps {
   isRunning: boolean;
   canStart: boolean;
   isUploading?: boolean;
+  /** Whether the last session reached the backend; shown for three seconds. */
+  uploadStatus?: 'success' | 'error' | null;
   onStart: () => void;
   onStop: () => void;
 }
@@ -14,6 +16,7 @@ export function SessionControls({
   isRunning,
   canStart,
   isUploading = false,
+  uploadStatus = null,
   onStart,
   onStop,
 }: SessionControlsProps): React.JSX.Element {
@@ -21,9 +24,13 @@ export function SessionControls({
     ? 'Sende Daten…'
     : isRunning
       ? 'Tracking aktiv'
-      : canStart
-        ? 'Tracking gestoppt'
-        : 'Gerät nicht bereit';
+      : uploadStatus === 'success'
+        ? 'Daten gesendet'
+        : uploadStatus === 'error'
+          ? 'Senden fehlgeschlagen'
+          : canStart
+            ? 'Tracking gestoppt'
+            : 'Gerät nicht bereit';
 
   return (
     <View style={styles.row}>

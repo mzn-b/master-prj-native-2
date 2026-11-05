@@ -85,6 +85,33 @@ describe('CameraScreen sessions', () => {
     expect(filters).toEqual([]);
   });
 
+  it('says for three seconds that the session was sent, as the web application does', async () => {
+    jest.useFakeTimers();
+    try {
+      mockTracking.stop.mockReturnValue(sessionMetrics(900));
+      const {getByText, queryByText} = await render(<CameraScreen />);
+      await fireEvent.press(getByText('Start'));
+      await fireEvent.press(getByText('Stop'));
+      expect(getByText('Daten gesendet')).toBeTruthy();
+      await act(async () => {
+        jest.advanceTimersByTime(3000);
+      });
+      expect(queryByText('Daten gesendet')).toBeNull();
+      expect(getByText('Tracking gestoppt')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('says that sending failed when the backend did not take the session', async () => {
+    mockSubmit.mockResolvedValueOnce(null as never);
+    mockTracking.stop.mockReturnValue(sessionMetrics(900));
+    const {getByText} = await render(<CameraScreen />);
+    await fireEvent.press(getByText('Start'));
+    await fireEvent.press(getByText('Stop'));
+    expect(getByText('Senden fehlgeschlagen')).toBeTruthy();
+  });
+
   it('never submits a session without frames', async () => {
     mockTracking.stop.mockReturnValue(sessionMetrics(0));
     const {getByText} = await render(<CameraScreen />);
