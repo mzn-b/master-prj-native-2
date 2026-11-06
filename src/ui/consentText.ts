@@ -36,16 +36,20 @@
  *
  * Version 1.4 (3 November 2026): the latest date for anonymisation is
  * 31 December 2027 (the author's decision), not 31 July 2027.
+ *
+ * Version 1.5 (6 November 2026): formal address ("Sie") throughout, as in the
+ * questionnaire and the texts read to participants (the author's decision).
+ * Nothing else changed.
  */
 
-export const CONSENT_VERSION = "1.4";
+export const CONSENT_VERSION = "1.5";
 
 export const CONSENT_TITLE = "Einwilligung zur Teilnahme";
 
 export const CONSENT_INTRO =
     "Diese App ist Teil einer Masterarbeit, die zwei technische Umsetzungen " +
-    "derselben Anwendung vergleicht (Web-App und native App). Bitte lies die " +
-    "folgenden Punkte, bevor du die Kamera startest.";
+    "derselben Anwendung vergleicht (Web-App und native App). Bitte lesen Sie " +
+    "die folgenden Punkte, bevor Sie die Kamera starten.";
 
 export interface ConsentSection {
     heading: string;
@@ -65,7 +69,7 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
         body:
             "Kurz gesagt: nur Zahlen dazu, wie schnell und wie zuverlässig die App " +
             "gearbeitet hat, und technische Angaben zum Gerät, kein Bild und nichts, " +
-            "was dich direkt identifiziert. Im Einzelnen: " +
+            "was Sie direkt identifiziert. Im Einzelnen: " +
             "Messwerte zur Leistung der App (etwa Bildrate, wie lange die Erkennung " +
             "pro Kamerabild gedauert hat, Verarbeitungs- und Darstellungszeiten, " +
             "Anzahl verarbeiteter und verworfener Bilder, Lade- und Startzeiten, " +
@@ -88,7 +92,7 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
         body:
             "Die Messwerte werden ausschließlich für die wissenschaftliche Auswertung " +
             "im Rahmen der Masterarbeit verwendet, nicht kommerziell. " +
-            "Rechtsgrundlage der Verarbeitung ist deine Einwilligung gemäß " +
+            "Rechtsgrundlage der Verarbeitung ist Ihre Einwilligung gemäß " +
             "Art. 6 Abs. 1 lit. a DSGVO.",
     },
     {
@@ -99,25 +103,25 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
             "mit einem Zugangsschlüssel heraus. Einsicht erhalten außer mir nur die " +
             "Betreuenden und die Begutachtenden der Masterarbeit. Die Web-App wird " +
             "von Vercel Inc. (USA) ausgeliefert; Vercel verarbeitet dabei wie jeder " +
-            "Webserver deine IP-Adresse, erhält aber keine Messwerte. Vercel ist nach " +
+            "Webserver Ihre IP-Adresse, erhält aber keine Messwerte. Vercel ist nach " +
             "dem EU-US Data Privacy Framework zertifiziert. Darüber hinaus werden die " +
             "Daten nicht weitergegeben.",
     },
     {
         heading: "Teilnahme ist freiwillig",
         body:
-            "Die Teilnahme ist freiwillig. Du kannst die Nutzung jederzeit und ohne " +
-            "Angabe von Gründen abbrechen, ohne dass dir daraus ein Nachteil " +
-            "entsteht. Du kannst deine Einwilligung jederzeit mit Wirkung für die " +
+            "Die Teilnahme ist freiwillig. Sie können die Nutzung jederzeit und ohne " +
+            "Angabe von Gründen abbrechen, ohne dass Ihnen daraus ein Nachteil " +
+            "entsteht. Sie können Ihre Einwilligung jederzeit mit Wirkung für die " +
             "Zukunft widerrufen; die Rechtmäßigkeit der bis dahin erfolgten " +
             "Verarbeitung bleibt davon unberührt.",
     },
     {
-        heading: "Löschung deiner Messwerte",
+        heading: "Löschung Ihrer Messwerte",
         body:
-            "Die Messwerte enthalten keine Angaben, die dich unmittelbar " +
+            "Die Messwerte enthalten keine Angaben, die Sie unmittelbar " +
             "identifizieren. Bis zur Anonymisierung (siehe Speicherdauer) lässt sich " +
-            "deine Sitzung jedoch über den Zeitpunkt der Messung zuordnen; bis dahin " +
+            "Ihre Sitzung jedoch über den Zeitpunkt der Messung zuordnen; bis dahin " +
             "genügt für die Löschung eine formlose Nachricht an die unten genannte " +
             "Kontaktadresse. Danach ist keine Zuordnung und damit auch keine " +
             "Löschung einzelner Sitzungen mehr möglich.",
@@ -134,11 +138,11 @@ export const CONSENT_SECTIONS: ConsentSection[] = [
             "Arbeit nachprüfbar bleiben.",
     },
     {
-        heading: "Deine Rechte",
+        heading: "Ihre Rechte",
         body:
-            "Dir stehen die Rechte auf Auskunft, Berichtigung, Löschung, " +
+            "Ihnen stehen die Rechte auf Auskunft, Berichtigung, Löschung, " +
             "Einschränkung der Verarbeitung und Datenübertragbarkeit zu. Außerdem " +
-            "hast du das Recht, dich bei der Österreichischen Datenschutzbehörde zu " +
+            "haben Sie das Recht, sich bei der Österreichischen Datenschutzbehörde zu " +
             "beschweren.",
     },
 ];
@@ -162,8 +166,8 @@ export const CONSENT_DECLINE = "Ablehnen";
 
 export const CONSENT_DECLINED_MESSAGE =
     "Kein Problem — ohne Einwilligung werden keine Daten verarbeitet. " +
-    "Du kannst die App jetzt schließen. Falls du es dir anders überlegst, " +
-    "öffne sie einfach erneut.";
+    "Sie können die App jetzt schließen. Falls Sie es sich anders überlegen, " +
+    "öffnen Sie sie einfach erneut.";
 
 /** True while the controller block still carries placeholder text. */
 export function consentIsIncomplete(): boolean {
